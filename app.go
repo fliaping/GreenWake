@@ -76,9 +76,9 @@ func main() {
 	//if err != nil {
 	//	panic(err)
 	//}
-	http.HandleFunc("/", wakeUp)           // 设置访问的路由
+	http.HandleFunc("/", wakeUp) // 设置访问的路由
+	fmt.Println("server start, port 80")
 	err := http.ListenAndServe(":80", nil) // 设置监听的端口
-	fmt.Println("server started, port 80")
 	if err != nil {
 		fmt.Println("ListenAndServe: ", err)
 	}
