@@ -1,7 +1,5 @@
 FROM golang:latest AS build_base
 
-RUN apk add --no-cache git
-
 # Set the Current Working Directory inside the container
 WORKDIR /tmp/my-wol
 
