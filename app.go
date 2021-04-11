@@ -5,6 +5,7 @@ import (
 	"github.com/go-ping/ping"
 	"github.com/reiver/go-telnet"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 )
@@ -124,9 +125,13 @@ func main() {
 	//if err != nil {
 	//	panic(err)
 	//}
+	serverPort := "9480"
+	if len(os.Args) > 1 {
+		serverPort = os.Args[1]
+	}
 	http.HandleFunc("/", wakeUp) // 设置访问的路由
-	fmt.Println("server start, port 80")
-	err := http.ListenAndServe(":80", nil) // 设置监听的端口
+	fmt.Println("server start, port " + serverPort)
+	err := http.ListenAndServe(":"+serverPort, nil) // 设置监听的端口
 	if err != nil {
 		fmt.Println("ListenAndServe: ", err)
 	}
