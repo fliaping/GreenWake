@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"github.com/go-ping/ping"
-	"log"
 	"net/http"
 	"time"
 )
@@ -79,7 +78,8 @@ func main() {
 	//}
 	http.HandleFunc("/", wakeUp)           // 设置访问的路由
 	err := http.ListenAndServe(":80", nil) // 设置监听的端口
+	fmt.Println("server started, port 80")
 	if err != nil {
-		log.Fatal("ListenAndServe: ", err)
+		fmt.Println("ListenAndServe: ", err)
 	}
 }

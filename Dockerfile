@@ -1,30 +1,13 @@
-FROM golang:latest AS build_base
-
-# Set the Current Working Directory inside the container
-WORKDIR /tmp/my-wol
-
-# We want to populate the module cache based on the go.{mod,sum} files.
+FROM golang:1.16.3-alpine3.13 AS build_base
+WORKDIR /tmp/wol
 COPY go.mod .
 COPY go.sum .
-
 RUN go mod download
-
 COPY . .
-
-# Unit tests
-RUN CGO_ENABLED=0 go test -v
-
-# Build the Go app
-RUN go build -o ./out/my-wol .
-
-# Start fresh from a smaller image
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go test -v
+RUN go build -o ./out/wol .
 FROM alpine:latest
 RUN apk add ca-certificates
-
-COPY --from=build_base /tmp/my-wol/out/my-wol /app/my-wol
-
-# This container exposes port 8080 to the outside world
+COPY --from=build_base /tmp/wol/out/wol /app/wol
 EXPOSE 80
-
-# Run the binary program produced by `go install`
-CMD ["/app/my-wol"]
+CMD ["/app/wol"]
