@@ -8,12 +8,16 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
 var host = ""
 var telPort = 0
 var macAddr = ""
+var lastSendWolTime = time.Unix(0, 0)
+var lastCheckHostStatus = -1
+var lastCheckMsg = ""
 
 func sendMsg(c *gin.Context, status int, msg string) {
 	var statusString = ""
@@ -47,7 +51,7 @@ func hostStatus() (int, string) {
 	if pingSuccess && telSuccess {
 		return 1, "Win10 is online"
 	} else {
-		return 0, ""
+		return 2, "sent WOL, waiting Win10 online"
 	}
 
 }
@@ -105,21 +109,32 @@ func telnetHost(host string, port int) (bool, error) {
 }
 
 func workingHandler(c *gin.Context) {
-	err := WakeCmd(macAddr, "")
-	if err != nil {
-		sendMsg(c, -1, "send WOL error, mac:"+macAddr+", "+err.Error())
-		return
+	refresh := c.Query("refresh")
+	checked := false
+	beforeInterval := time.Now().Sub(lastSendWolTime)
+	if beforeInterval > time.Second*60 || "true" == strings.ToLower(refresh) {
+		err := WakeCmd(macAddr, "")
+		lastSendWolTime = time.Now()
+		if err != nil {
+			sendMsg(c, -1, "send WOL error, mac:"+macAddr+", "+err.Error())
+			return
+		}
+		status, msg := hostStatus()
+		lastCheckHostStatus = status
+		lastCheckMsg = msg
+		checked = true
 	}
 
-	status, msg := hostStatus()
-
-	if status == 1 {
+	msg := lastCheckMsg
+	if !checked {
+		msg = msg + " (check before " + beforeInterval.String() + ")"
+	}
+	if lastCheckHostStatus == 1 {
 		sendMsg(c, 1, msg)
-		return
-	} else if status == -1 {
+	} else if lastCheckHostStatus == -1 {
 		sendMsg(c, -1, msg)
 	} else {
-		sendMsg(c, 2, "sent WOL, waiting Win10 online")
+		sendMsg(c, 2, msg)
 	}
 }
 
@@ -176,9 +191,12 @@ const (
 <body>
 <div id="app" class="center">
     <h2>Server Status: {{ status }}</h2>
+	</br>
+	<h3>注意：使用过程请不要关闭本页面</h3>
+	</br>
     <h4>Message: {{ message }}</h4>
     </br></br>
-    <h2><a href="https://r.home.fliaping.com:7550/">Go to Rstudio</a></h2>
+    <h2><a href="https://r.home.fliaping.com:7550/" target="_blank">Go to Rstudio</a></h2>
 </div>
 <script>
     var app = new Vue({
