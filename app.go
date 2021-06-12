@@ -5,6 +5,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-ping/ping"
 	"github.com/reiver/go-telnet"
+	"io/ioutil"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -142,6 +144,29 @@ func indexHandler(c *gin.Context) {
 	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(indexString))
 }
 
+func clashFilterHandler(c *gin.Context) {
+	url := c.Query("url")
+	filterPattern := c.Query("pattern")
+	var client http.Client
+	resp, err := client.Get(url)
+	if err != nil {
+		log.Println(err.Error())
+		c.Data(http.StatusBadRequest, "application/json; charset=utf-8", []byte("{\"msg\":\""+err.Error()+"\"}"))
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		bodyBytes, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			log.Fatal(err)
+		}
+		bodyString := string(bodyBytes)
+		filtered := ClashHandler(bodyString, filterPattern)
+		c.Data(http.StatusBadRequest, "text/plain; charset=utf-8", []byte(filtered))
+	}
+}
+
 func main() {
 	r := gin.Default()
 
@@ -150,6 +175,8 @@ func main() {
 	HOST_IP := os.Getenv("HOST_IP")
 	TEL_PORT := os.Getenv("TEL_PORT")
 	HOST_MAC := os.Getenv("HOST_MAC")
+
+	HTTP_PORT := os.Getenv("HTTP_PORT")
 
 	if USER == "" || PASSWD == "" || HOST_IP == "" || TEL_PORT == "" || HOST_MAC == "" {
 		panic("please set env: HTTP_USER,HTTP_PASSWD,HOST_IP,TEL_PORT,HOST_MAC")
@@ -162,6 +189,8 @@ func main() {
 	telPort = port
 	macAddr = HOST_MAC
 
+	r.GET("/clashFilter", clashFilterHandler)
+
 	authorized := r.Group("/", gin.BasicAuth(gin.Accounts{
 		USER: PASSWD,
 	}))
@@ -169,7 +198,11 @@ func main() {
 	authorized.GET("/", indexHandler)
 	authorized.GET("/working", workingHandler)
 
-	r.Run(":8055") // listen and serve on 0.0.0.0:8080 (for windows "localhost:8080")
+	var addr = ":8055"
+	if HTTP_PORT != "" {
+		addr = ":" + HTTP_PORT
+	}
+	r.Run(addr) // listen and serve on 0.0.0.0:8080 (for windows "localhost:8080")
 }
 
 const (
