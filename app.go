@@ -2,16 +2,18 @@ package main
 
 import (
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/go-ping/ping"
-	"github.com/reiver/go-telnet"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/go-ping/ping"
+	"github.com/reiver/go-telnet"
 )
 
 var host = ""
@@ -163,18 +165,46 @@ func clashFilterHandler(c *gin.Context) {
 		}
 		bodyString := string(bodyBytes)
 		filtered := ClashHandler(bodyString, filterPattern)
-		c.Data(http.StatusBadRequest, "text/plain; charset=utf-8", []byte(filtered))
+		c.Data(http.StatusOK, "application/octet-stream; charset=utf-8", []byte(filtered))
+	} else {
+		bodyBytes, _ := ioutil.ReadAll(resp.Body)
+		c.Data(resp.StatusCode, "text/plain; charset=utf-8", bodyBytes)
 	}
+}
+
+func nasIpv6Handler(c *gin.Context) {
+	dev := c.Query("dev")
+	if len(dev) == 0 {
+        dev = "eth0"
+    }
+	arg := "ip -6 addr show dev "+ dev +" scope global | grep inet6 | awk '{print $2}' | awk -F'/' '{print $1}' | grep -v -E \"^(fd|fc)\""
+	cmd, err := exec.Command("sh","-c", arg).Output()
+    fmt.Println("get_nas_ipv6:", cmd)
+
+    if err != nil {
+        fmt.Println(err)
+		c.Data(http.StatusInternalServerError, "text/plain; charset=utf-8", []byte(err.Error()))
+    }
+	c.Data(http.StatusOK, "text/plain; charset=utf-8", cmd)
+}
+
+
+func getenv(key, fallback string) string {
+    value := os.Getenv(key)
+    if len(value) == 0 {
+        return fallback
+    }
+    return value
 }
 
 func main() {
 	r := gin.Default()
 
-	USER := os.Getenv("HTTP_USER")
-	PASSWD := os.Getenv("HTTP_PASSWD")
-	HOST_IP := os.Getenv("HOST_IP")
-	TEL_PORT := os.Getenv("TEL_PORT")
-	HOST_MAC := os.Getenv("HOST_MAC")
+	USER := getenv("HTTP_USER","test")
+	PASSWD := getenv("HTTP_PASSWD","%$%^&@@#31")
+	HOST_IP := getenv("HOST_IP","127.0.0.1")
+	TEL_PORT := getenv("TEL_PORT","3389")
+	HOST_MAC := getenv("HOST_MAC", "11:11:11:11:11")
 
 	HTTP_PORT := os.Getenv("HTTP_PORT")
 
@@ -190,6 +220,7 @@ func main() {
 	macAddr = HOST_MAC
 
 	r.GET("/clashFilter", clashFilterHandler)
+	r.GET("/nas_ipv6", nasIpv6Handler)
 
 	authorized := r.Group("/", gin.BasicAuth(gin.Accounts{
 		USER: PASSWD,
