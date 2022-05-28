@@ -1,4 +1,4 @@
-FROM golang:1.16.3-alpine3.13 AS build_base
+FROM golang:alpine AS build_base
 WORKDIR /tmp/wol
 COPY go.mod .
 COPY go.sum .
@@ -9,5 +9,5 @@ RUN go build -o ./out/wol .
 FROM alpine:latest
 RUN apk add ca-certificates
 COPY --from=build_base /tmp/wol/out/wol /app/wol
-EXPOSE 80
+EXPOSE 8055
 CMD ["/app/wol"]

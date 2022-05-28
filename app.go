@@ -115,8 +115,8 @@ func telnetHost(host string, port int) (bool, error) {
 func workingHandler(c *gin.Context) {
 	refresh := c.Query("refresh")
 	checked := false
-	beforeInterval := time.Now().Sub(lastSendWolTime)
-	if beforeInterval > time.Second*60 || "true" == strings.ToLower(refresh) {
+	beforeInterval := time.Since(lastSendWolTime)
+	if beforeInterval > time.Second*60 || strings.ToLower(refresh) == "true" {
 		err := WakeCmd(macAddr, "")
 		lastSendWolTime = time.Now()
 		if err != nil {

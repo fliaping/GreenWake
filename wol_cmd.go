@@ -41,7 +41,7 @@ func ipFromInterface(iface string) (*net.UDPAddr, error) {
 func WakeCmd(macAddr string, bcastInterface string) error {
 	// bcastInterface can be "eth0", "eth1", etc.. An empty string implies
 	// that we use the default interface when sending the UDP packet (nil).
-	bcastInterface = ""
+	// bcastInterface = ""
 
 	// Populate the local address in the event that the broadcast interface has
 	// been set.
