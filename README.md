@@ -23,8 +23,14 @@ docker run -d --network=host --name=my-wol --restart=always -e HTTP_PORT=8055 -e
 
 ## clash规则过滤
 
-- 过滤`proxy-groups` 下的服务器，主要因为有的是n倍计费，要过滤掉
+- 过滤 `proxy-groups` 下的服务器，主要因为有的是n倍计费，要过滤掉
 - 链接：http://192.168.1.2:8055/clashFilter?url=可以获取clash配置的地址&pattern=过滤的正则表达式
 - 注意：参数需要进行 URL Encode
 - 正则举例：.*(流量|备用|临时|耗尽|测试|\[2\]|\[5\]|\[1.5\]).*
 - 正则URL Encode：.*(%E6%B5%81%E9%87%8F%7C%E5%A4%87%E7%94%A8%7C%E4%B8%B4%E6%97%B6%7C%E8%80%97%E5%B0%BD%7C%E6%B5%8B%E8%AF%95%7C%5C%5B2%5C%5D%7C%5C%5B5%5C%5D%7C%5C%5B1.5%5C%5D).*
+
+## dev
+
+`docker build -t xuping/my-wol:latest .`
+
+`docker push xuping/my-wol:latest`
