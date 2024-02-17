@@ -224,7 +224,7 @@ func main() {
 	r.GET("/nas_ipv6", nasIpv6Handler)
 
 	if DISABLE_AUTH != "true" {
-		authed = r.Group("/", gin.BasicAuth(gin.Accounts{
+		authed := r.Group("/", gin.BasicAuth(gin.Accounts{
 			USER: PASSWD,
 		}))
 		authed.GET("/", indexHandler)
