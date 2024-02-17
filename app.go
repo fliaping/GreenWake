@@ -199,7 +199,8 @@ func getenv(key, fallback string) string {
 
 func main() {
 	r := gin.Default()
-
+    
+	DISABLE_AUTH := getenv("DISABLE_AUTH", "false")
 	USER := getenv("HTTP_USER","test")
 	PASSWD := getenv("HTTP_PASSWD","%$%^&@@#31")
 	HOST_IP := getenv("HOST_IP","127.0.0.1")
@@ -222,12 +223,14 @@ func main() {
 	r.GET("/clashFilter", clashFilterHandler)
 	r.GET("/nas_ipv6", nasIpv6Handler)
 
-	authorized := r.Group("/", gin.BasicAuth(gin.Accounts{
-		USER: PASSWD,
-	}))
+	if DISABLE_AUTH != "true" {
+		r := r.Group("/", gin.BasicAuth(gin.Accounts{
+			USER: PASSWD,
+		}))
+	}
 
-	authorized.GET("/", indexHandler)
-	authorized.GET("/working", workingHandler)
+	r.GET("/", indexHandler)
+	r.GET("/working", workingHandler)
 
 	var addr = ":8055"
 	if HTTP_PORT != "" {
