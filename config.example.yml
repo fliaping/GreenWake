@@ -1,0 +1,36 @@
+# HTTP服务配置
+http:
+  port: 8055
+  user: test
+  password: "%$%^&@@#31"
+
+# 远程PC主机配置列表
+hosts:
+  - name: home-pc           # 主机名，用于标识和转发配置关联
+    ip: "192.168.1.100"    # 主机IP地址
+    mac: "AA:BB:CC:DD:EE:FF"  # MAC地址，用于WOL唤醒
+    monitor_port: 3389      # 在线监测端口，通常是RDP或SSH端口
+
+  - name: office-pc
+    ip: "192.168.2.100"
+    mac: "11:22:33:44:55:66"
+    monitor_port: 22
+
+  - name: game-pc
+    ip: "192.168.1.200"
+    mac: "AA:11:BB:22:CC:33"
+    monitor_port: 3389
+
+# 转发通道配置列表
+forwards:
+  - service_port: 13389     # 对外服务端口
+    target_host: home-pc    # 目标主机名，关联hosts中的配置
+    target_port: 3389       # 目标端口
+
+  - service_port: 10022     # SSH转发
+    target_host: office-pc
+    target_port: 22
+
+  - service_port: 23389     # 游戏PC远程桌面
+    target_host: game-pc
+    target_port: 3389 

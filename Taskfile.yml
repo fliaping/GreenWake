@@ -1,0 +1,43 @@
+version: '3'
+
+vars:
+  BINARY_NAME: my-wol
+  BUILD_DIR: build
+
+tasks:
+  default:
+    cmds:
+      - task: build
+
+  install-deps:
+    desc: Install dependencies
+    cmds:
+      - go mod download
+      - go mod tidy
+
+  build:
+    desc: Build the application
+    deps: [install-deps]
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}
+      - go build -o {{.BUILD_DIR}}/{{.BINARY_NAME}} ./cmd/server
+
+  run:
+    desc: Run the application
+    cmds:
+      - go run ./cmd/server
+
+  test:
+    desc: Run tests
+    cmds:
+      - go test -v ./...
+
+  clean:
+    desc: Clean build directory
+    cmds:
+      - rm -rf {{.BUILD_DIR}}
+
+  dev:
+    desc: Run with hot reload
+    cmds:
+      - air 
