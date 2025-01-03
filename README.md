@@ -71,6 +71,7 @@ cd wol
 2. 编译运行
 
 ```bash
+
 # 编译前端
 cd web
 npm install
@@ -78,8 +79,15 @@ npm run build
 
 # 编译后端
 cd ..
+# [MacOs]安装task
+brew install go-task/tap/go-task
+# [平台通用]安装task
+go install github.com/go-task/task/v3/cmd/task@latest
+
 # 安装依赖
 task install-deps
+#[可选]整理和清理项目依赖关系
+go mod tidy 
 
 # 直接运行
 go run cmd/server/main.go -config config.yml
