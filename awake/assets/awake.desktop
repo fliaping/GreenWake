@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Awake
+Comment=System Wake Service
+Exec=awake
+Icon=awake
+Terminal=false
+Categories=Utility;
+StartupNotify=false 

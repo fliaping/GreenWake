@@ -309,7 +309,7 @@ const RemoteControl: React.FC = () => {
         </div>
 
         <Collapse ghost style={{ marginTop: '16px' }}>
-          <Panel header="唤醒客户端信息" key="clients">
+          <Panel header="网页唤醒客户端" key="clients">
             <Table 
               columns={clientInfoColumns}
               dataSource={clients}
@@ -317,7 +317,7 @@ const RemoteControl: React.FC = () => {
               pagination={false}
             />
           </Panel>
-          <Panel header="转发通道" key="channels">
+          <Panel header="转发唤醒客户端" key="channels">
             <Table 
               columns={channelColumns}
               dataSource={channels}

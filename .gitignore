@@ -1,21 +1,22 @@
-# Build
-/build
-/tmp
+# 构建输出
+build/
+tmp/
 
-# IDE
-.idea
-.vscode
+# IDE 文件
+.idea/
 
-# Dependencies
-/vendor
-/web/node_modules
+node_modules/
 
-# Environment
-.env
-*.env
 
-# Logs
+# 日志文件
 *.log
 
-# System
+# 配置文件（除了示例配置）
+config.yml
+!config.example.yml
+
+# macOS
 .DS_Store
+
+# 临时文件
+*.tmp
