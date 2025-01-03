@@ -14,19 +14,21 @@ import (
 )
 
 type PCService struct {
-	cfg    *config.Config
-	hosts  map[string]*model.PCHostInfo
-	status sync.Map // key: hostName, value: *model.PCHostStatus
-	wol    sync.Map // key: hostName, value: time.Time (上次唤醒时间)
+	cfg      *config.Config
+	hosts    map[string]*model.PCHostInfo
+	cfgHosts map[string]config.PCHostConfig
+	status   sync.Map // key: hostName, value: *model.PCHostStatus
+	wol      sync.Map // key: hostName, value: time.Time (上次唤醒时间)
 }
 
 func NewPCService(cfg *config.Config) *PCService {
 	s := &PCService{
-		cfg:   cfg,
-		hosts: make(map[string]*model.PCHostInfo),
+		cfg:      cfg,
+		hosts:    make(map[string]*model.PCHostInfo),
+		cfgHosts: make(map[string]config.PCHostConfig),
 	}
 
-	// 初始化主机信息
+	// 初始化主机信息和配置映射
 	for _, host := range cfg.Hosts {
 		s.hosts[host.Name] = &model.PCHostInfo{
 			Name:        host.Name,
@@ -34,6 +36,7 @@ func NewPCService(cfg *config.Config) *PCService {
 			MAC:         host.MAC,
 			MonitorPort: host.MonitorPort,
 		}
+		s.cfgHosts[host.Name] = host
 	}
 
 	return s

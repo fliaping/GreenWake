@@ -11,11 +11,14 @@ hosts:
     ip: "192.168.217.226"
     mac: "ec:d6:8a:e9:df:aa"
     monitor_port: 3389
+    wake_timeout: 5  # 默认10秒超时
+    retry_count: 4    # 默认超时后重试1次
   
   - name: "office-pc"
     ip: "192.168.2.100"
     mac: "11:22:33:44:55:66"
     monitor_port: 22
+    # 不配置则使用默认值
   - name: "local-pc"
     ip: "127.0.0.1"
     mac: "6e:af:f1:a3:2e:b1"

@@ -6,6 +6,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type PCHostConfig struct {
+	Name        string `yaml:"name"`
+	IP          string `yaml:"ip"`
+	MAC         string `yaml:"mac"`
+	MonitorPort int    `yaml:"monitor_port"`
+	WakeTimeout int    `yaml:"wake_timeout"`
+	RetryCount  int    `yaml:"retry_count"`
+}
+
 type Config struct {
 	Log struct {
 		Level string `yaml:"level"`
@@ -17,12 +26,7 @@ type Config struct {
 		Password string `yaml:"password"`
 	} `yaml:"http"`
 
-	Hosts []struct {
-		Name        string `yaml:"name"`
-		IP          string `yaml:"ip"`
-		MAC         string `yaml:"mac"`
-		MonitorPort int    `yaml:"monitor_port"`
-	} `yaml:"hosts"`
+	Hosts []PCHostConfig `yaml:"hosts"`
 
 	Forwards []struct {
 		ServicePort int    `yaml:"service_port"`

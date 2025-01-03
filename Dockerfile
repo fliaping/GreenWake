@@ -14,7 +14,7 @@ COPY go.sum .
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go test -v
-RUN go build -o ./out/wol .
+RUN go build -o ./out/wol ./cmd/server
 
 # 最终镜像
 FROM alpine:latest

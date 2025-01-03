@@ -159,31 +159,54 @@ func (s *ForwardService) handleConnection(client net.Conn, channel *model.Forwar
 		return
 	}
 
-	// 检查主机状态并尝试唤醒
-	status, err := s.pcService.GetHostStatus(channel.TargetHost, false)
-	if err != nil || !status.IsOnline {
-		log.Printf("目标主机离线，尝试唤醒: %s [%d -> %s:%d]", channel.TargetHost, channel.ServicePort, host.IP, channel.TargetPort)
-		// 发送唤醒包
-		s.pcService.sendWakePacket(host)
+	isOnline := checkHostOnline(host.IP, host.MonitorPort)
+	if !isOnline {
+		cfgHost, exists := s.pcService.cfgHosts[channel.TargetHost]
+		retryCount := 1 // 默认重试1次
+		if exists && cfgHost.RetryCount > 0 {
+			retryCount = cfgHost.RetryCount
+		}
 
-		// 等待主机上线
-		startTime := time.Now()
-		for {
-			status, err := s.pcService.GetHostStatus(channel.TargetHost, false)
-			if err == nil && status.IsOnline {
-				log.Printf("目标主机已上线，开始转发: %s [%d -> %s:%d]", channel.TargetHost, channel.ServicePort, host.IP, channel.TargetPort)
-				break
+		// 重试循环
+		for retry := 0; retry <= retryCount; retry++ {
+			if retry > 0 {
+				log.Printf("第%d/%d次重试唤醒主机: %s", retry, retryCount, channel.TargetHost)
 			}
 
-			if time.Since(startTime) > 10*time.Second {
-				log.Printf("等待主机上线超时（10秒）: %s [%d -> %s:%d]", channel.TargetHost, channel.ServicePort, host.IP, channel.TargetPort)
+			log.Printf("目标主机离线，尝试唤醒: %s [%d -> %s:%d]", channel.TargetHost, channel.ServicePort, host.IP, channel.TargetPort)
+			s.pcService.sendWakePacket(host)
+
+			// 获取唤醒超时时间
+			wakeTimeout := 10 // 默认30秒
+			if exists && cfgHost.WakeTimeout > 0 {
+				wakeTimeout = cfgHost.WakeTimeout
+			}
+
+			// 等待主机上线
+			startTime := time.Now()
+			for {
+				if checkHostOnline(host.IP, host.MonitorPort) {
+					log.Printf("目标主机已上线，开始转发: %s [%d -> %s:%d]", channel.TargetHost, channel.ServicePort, host.IP, channel.TargetPort)
+					goto Connected
+				}
+
+				if time.Since(startTime) > time.Duration(wakeTimeout)*time.Second {
+					log.Printf("等待主机上线超时（%d秒）: %s [%d -> %s:%d]", wakeTimeout, channel.TargetHost, channel.ServicePort, host.IP, channel.TargetPort)
+					break
+				}
+
+				time.Sleep(100 * time.Millisecond)
+			}
+
+			// 如果是最后一次重试且失败
+			if retry == retryCount {
+				log.Printf("已重试%d次，主机仍未上线，放弃连接: %s", retryCount, channel.TargetHost)
 				return
 			}
-
-			time.Sleep(100 * time.Millisecond)
 		}
 	}
 
+Connected:
 	// 连接目标地址
 	target, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", host.IP, channel.TargetPort), 5*time.Second)
 	if err != nil {
