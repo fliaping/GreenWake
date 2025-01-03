@@ -213,9 +213,15 @@ const RemoteControl: React.FC = () => {
   ];
 
   const channelColumns = [
-    { title: '服务端口', dataIndex: 'servicePort', key: 'servicePort' },
-    { title: '目标主机', dataIndex: 'targetHost', key: 'targetHost' },
-    { title: '目标端口', dataIndex: 'targetPort', key: 'targetPort' },
+    { title: '服务端口', dataIndex: 'service_port', key: 'service_port' },
+    { title: '目标主机', dataIndex: 'target_host', key: 'target_host' },
+    { title: '目标端口', dataIndex: 'target_port', key: 'target_port' },
+    { 
+      title: '活跃连接数',
+      dataIndex: 'active_count',
+      key: 'active_count',
+      render: (count: number) => count || 0
+    },
     {
       title: '状态',
       dataIndex: 'status',
@@ -228,15 +234,29 @@ const RemoteControl: React.FC = () => {
     },
     {
       title: '最后活跃时间',
-      dataIndex: 'lastActive',
-      key: 'lastActive',
+      dataIndex: 'last_active',
+      key: 'last_active',
       render: (time?: string) => time ? formatDate(time) : '-'
     }
   ];
 
   const channelClientColumns = [
-    { title: 'IP', dataIndex: 'ip', key: 'ip' },
-    { title: '端口', dataIndex: 'port', key: 'port' },
+    { title: '客户端IP', dataIndex: 'ip', key: 'ip' },
+    { 
+      title: '客户端端口',
+      dataIndex: 'ports',
+      key: 'ports',
+      render: (ports: string[]) => {
+        if (ports.length <= 3) {
+          return ports.join(', ');
+        }
+        return (
+          <Tooltip title={ports.join(', ')}>
+            <span>{ports.slice(0, 2).join(', ')}... ({ports.length}个)</span>
+          </Tooltip>
+        );
+      }
+    },
     {
       title: '状态',
       dataIndex: 'status',
@@ -247,8 +267,8 @@ const RemoteControl: React.FC = () => {
     },
     {
       title: '最后活跃时间',
-      dataIndex: 'lastActive',
-      key: 'lastActive',
+      dataIndex: 'last_active',
+      key: 'last_active',
       render: (time: string) => formatDate(time)
     }
   ];

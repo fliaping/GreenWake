@@ -18,8 +18,9 @@ type ForwardService struct {
 	channels       sync.Map // key: servicePort, value: *model.ForwardChannel
 	listeners      map[int]net.Listener
 	mu             sync.Mutex
-	activeConn     sync.Map // key: servicePort, value: int (活跃连接数)
-	channelClients sync.Map // key: channelId, value: map[string]*ChannelClient
+	channelClients sync.Map // key: channelId, value: *sync.Map[clientId]*ChannelClient
+	activeCount    int64    // 全局活跃连接计数
+	countMu        sync.Mutex
 	cleaner        *time.Ticker
 }
 
@@ -104,7 +105,6 @@ func (s *ForwardService) startForward(channel *model.ForwardChannel) {
 func (s *ForwardService) handleConnection(client net.Conn, channel *model.ForwardChannel) {
 	defer client.Close()
 
-	// 生成客户端ID
 	clientAddr := client.RemoteAddr().(*net.TCPAddr)
 	clientId := fmt.Sprintf("%s:%d", clientAddr.IP.String(), clientAddr.Port)
 
@@ -117,12 +117,36 @@ func (s *ForwardService) handleConnection(client net.Conn, channel *model.Forwar
 		LastActive: time.Now().Format(time.RFC3339),
 	}
 
-	// 获取或创建通道的客户端映射
+	// 增加活跃连接计数
+	s.countMu.Lock()
+	s.activeCount++
+	channel.ActiveCount = int(s.activeCount)
+	s.countMu.Unlock()
+
+	channel.Status = "active"
+	channel.LastActive = time.Now().Format(time.RFC3339)
+	s.channels.Store(channel.ServicePort, channel)
+
+	// 获取通道的客户端映射
 	clientsMap, _ := s.channelClients.LoadOrStore(channel.ID, &sync.Map{})
 	clientsMap.(*sync.Map).Store(clientId, clientInfo)
 
-	// 在连接结束时清理客户端信息
+	// 在连接结束时清理
 	defer func() {
+		// 减少活跃连接计数
+		s.countMu.Lock()
+		s.activeCount--
+		count := s.activeCount
+		s.countMu.Unlock()
+
+		// 更新通道状态
+		if count == 0 {
+			channel.Status = "inactive"
+		}
+		channel.ActiveCount = int(count)
+		s.channels.Store(channel.ServicePort, channel)
+
+		// 删除客户端记录
 		if cm, ok := s.channelClients.Load(channel.ID); ok {
 			cm.(*sync.Map).Delete(clientId)
 		}
@@ -147,6 +171,36 @@ func (s *ForwardService) handleConnection(client net.Conn, channel *model.Forwar
 					}
 				}
 			case <-stopUpdate:
+				return
+			}
+		}
+	}()
+
+	// 获取唤醒间隔时间
+	wakeInterval := 120 // 默认120秒
+	if cfgHost, exists := s.pcService.cfgHosts[channel.TargetHost]; exists && cfgHost.WakeInterval > 0 {
+		wakeInterval = cfgHost.WakeInterval
+	}
+
+	// 创建定时唤醒的 ticker
+	wakeTicker := time.NewTicker(time.Duration(wakeInterval) * time.Second)
+	defer wakeTicker.Stop()
+
+	// 启动定时唤醒协程
+	stopWake := make(chan struct{})
+	defer close(stopWake)
+
+	go func() {
+		for {
+			select {
+			case <-wakeTicker.C:
+				// 检查主机是否在线
+				if host, exists := s.pcService.hosts[channel.TargetHost]; exists {
+					// 通道活跃期间持续发送唤醒包，保持主机在线
+					log.Printf("保持主机唤醒: %s", channel.TargetHost)
+					s.pcService.sendWakePacket(host)
+				}
+			case <-stopWake:
 				return
 			}
 		}
@@ -241,23 +295,6 @@ Connected:
 
 	// 等待两个方向的数据传输都完成
 	wg.Wait()
-
-	// 减少活跃连接计数
-	count := 0
-	if v, ok := s.activeConn.Load(channel.ServicePort); ok {
-		count = v.(int) - 1
-		if count > 0 {
-			s.activeConn.Store(channel.ServicePort, count)
-		} else {
-			s.activeConn.Delete(channel.ServicePort)
-		}
-	}
-
-	// 只有当没有活跃连接时才更新状态为非活跃
-	if count == 0 {
-		channel.Status = "inactive"
-		s.channels.Store(channel.ServicePort, channel)
-	}
 }
 
 func (s *ForwardService) GetChannels() []*model.ForwardChannel {
@@ -284,26 +321,60 @@ func (s *ForwardService) Close() {
 	}
 }
 
+func (s *ForwardService) aggregateClients(channelId string) []*model.AggregatedClient {
+	clientMap := make(map[string]*model.AggregatedClient)
+
+	if clientsMap, ok := s.channelClients.Load(channelId); ok {
+		clientsMap.(*sync.Map).Range(func(_, v interface{}) bool {
+			if client, ok := v.(*model.ChannelClient); ok {
+				if agg, exists := clientMap[client.IP]; exists {
+					agg.Ports = append(agg.Ports, client.Port)
+					if client.LastActive > agg.LastActive {
+						agg.LastActive = client.LastActive
+					}
+				} else {
+					clientMap[client.IP] = &model.AggregatedClient{
+						IP:         client.IP,
+						Ports:      []string{client.Port},
+						Status:     client.Status,
+						LastActive: client.LastActive,
+					}
+				}
+			}
+			return true
+		})
+	}
+
+	// 转换为数组
+	aggregatedClients := make([]*model.AggregatedClient, 0, len(clientMap))
+	for _, client := range clientMap {
+		aggregatedClients = append(aggregatedClients, client)
+	}
+	return aggregatedClients
+}
+
 func (s *ForwardService) GetHostChannels(hostName string) []*model.ForwardChannel {
 	var channels []*model.ForwardChannel
 	s.channels.Range(func(_, value interface{}) bool {
 		if channel, ok := value.(*model.ForwardChannel); ok {
 			if channel.TargetHost == hostName {
-				// 获取通道的客户端列表
-				var clients []*model.ChannelClient
-				if clientsMap, ok := s.channelClients.Load(channel.ID); ok {
-					clientsMap.(*sync.Map).Range(func(_, v interface{}) bool {
-						if client, ok := v.(*model.ChannelClient); ok {
-							clients = append(clients, client)
-						}
-						return true
-					})
-				}
-				channel.Clients = clients
+				channel.Clients = s.aggregateClients(channel.ID)
+				// 更新活跃连接数
+				s.countMu.Lock()
+				channel.ActiveCount = int(s.activeCount)
+				s.countMu.Unlock()
 				channels = append(channels, channel)
 			}
 		}
 		return true
 	})
 	return channels
+}
+
+func (s *ForwardService) logError(format string, v ...interface{}) {
+	log.Printf("[ERROR] "+format, v...)
+}
+
+func (s *ForwardService) logInfo(format string, v ...interface{}) {
+	log.Printf("[INFO] "+format, v...)
 }

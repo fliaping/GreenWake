@@ -13,6 +13,7 @@ hosts:
     monitor_port: 3389
     wake_timeout: 5  # 默认10秒超时
     retry_count: 4    # 默认超时后重试1次
+    wake_interval: 60  # 默认每120秒发送一次唤醒包
   
   - name: "office-pc"
     ip: "192.168.2.100"

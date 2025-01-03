@@ -7,12 +7,13 @@ import (
 )
 
 type PCHostConfig struct {
-	Name        string `yaml:"name"`
-	IP          string `yaml:"ip"`
-	MAC         string `yaml:"mac"`
-	MonitorPort int    `yaml:"monitor_port"`
-	WakeTimeout int    `yaml:"wake_timeout"`
-	RetryCount  int    `yaml:"retry_count"`
+	Name         string `yaml:"name"`
+	IP           string `yaml:"ip"`
+	MAC          string `yaml:"mac"`
+	MonitorPort  int    `yaml:"monitor_port"`
+	WakeTimeout  int    `yaml:"wake_timeout"`
+	RetryCount   int    `yaml:"retry_count"`
+	WakeInterval int    `yaml:"wake_interval"`
 }
 
 type Config struct {
