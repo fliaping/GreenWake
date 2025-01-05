@@ -12,7 +12,7 @@ import (
 
 func main() {
 	// 添加命令行参数
-	configPath := flag.String("config", "config.yml", "配置文件路径")
+	configPath := flag.String("config", "config.yaml", "配置文件路径")
 	flag.Parse()
 
 	// 如果没有指定绝对路径，则使用相对于当前工作目录的路径

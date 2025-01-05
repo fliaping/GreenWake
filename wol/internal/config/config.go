@@ -22,9 +22,10 @@ type Config struct {
 	} `yaml:"log"`
 
 	HTTP struct {
-		Port     string `yaml:"port"`
-		User     string `yaml:"user"`
-		Password string `yaml:"password"`
+		Port            string `yaml:"port"`
+		User            string `yaml:"user"`
+		Password        string `yaml:"password"`
+		RefreshInterval int    `yaml:"refresh_interval"`
 	} `yaml:"http"`
 
 	Hosts []PCHostConfig `yaml:"hosts"`

@@ -1,0 +1,41 @@
+log:
+  level: "debug"  # debug, info, warn, error
+
+http:
+  port: "8055"
+  user: "admin"
+  password: "123456"
+  refresh_interval: 10
+
+hosts:
+  - name: "home-pc"
+    ip: "192.168.217.226"
+    mac: "ec:d6:8a:e9:df:aa"
+    monitor_port: 3389
+    wake_timeout: 5  # 默认10秒超时
+    retry_count: 4    # 默认超时后重试1次
+    wake_interval: 60  # 默认每120秒发送一次唤醒包
+  
+  - name: "office-pc"
+    ip: "192.168.2.100"
+    mac: "11:22:33:44:55:66"
+    monitor_port: 22
+    # 不配置则使用默认值
+  - name: "local-pc"
+    ip: "127.0.0.1"
+    mac: "6e:af:f1:a3:2e:b1"
+    monitor_port: 3000
+    wake_interval: 20
+
+forwards:
+  - service_port: 13322
+    target_host: "home-pc"
+    target_port: 22022
+  
+  - service_port: 10022
+    target_host: "office-pc"
+    target_port: 22
+
+  - service_port: 10025
+    target_host: "local-pc"
+    target_port: 3000

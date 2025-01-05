@@ -62,13 +62,14 @@ func NewServer(cfg *config.Config) *Server {
 	pcService := service.NewPCService(cfg)
 	clientService := service.NewClientService()
 	forwardService := service.NewForwardService(cfg, pcService)
-	handler := NewHandler(pcService, clientService, forwardService)
+	handler := NewHandler(pcService, clientService, forwardService, cfg)
 
 	api := r.Group("/api")
 	{
 		pc := api.Group("/pc")
 		{
 			pc.GET("/hosts", handler.GetHosts)
+			pc.GET("/config", handler.GetConfig)
 			pc.GET("/:hostName/status", handler.GetHostStatus)
 			pc.GET("/:hostName/client_info", handler.GetHostClients)
 			pc.GET("/:hostName/forward_channels", handler.GetHostChannels)

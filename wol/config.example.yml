@@ -3,6 +3,7 @@ http:
   port: 8055
   user: test
   password: "%$%^&@@#31"
+  refresh_interval: 30  # 主机状态刷新时间间隔（秒）
 
 # 远程PC主机配置列表
 hosts:

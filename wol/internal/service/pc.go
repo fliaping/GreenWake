@@ -73,10 +73,16 @@ func (s *PCService) GetHostStatus(hostName string, keepAwake bool) (*model.PCHos
 
 	// 处理唤醒逻辑
 	if keepAwake {
+		// 获取唤醒间隔时间
+		wakeInterval := 120 // 默认120秒
+		if cfgHost, exists := s.cfgHosts[hostName]; exists && cfgHost.WakeInterval > 0 {
+			wakeInterval = cfgHost.WakeInterval
+		}
+
 		if lastWake, ok := s.wol.Load(hostName); ok {
 			// 如果有上次唤醒记录，检查是否需要再次唤醒
-			if time.Since(lastWake.(time.Time)) > 5*time.Minute {
-				// 超过5分钟，直接发送唤醒包
+			if time.Since(lastWake.(time.Time)) > time.Duration(wakeInterval)*time.Second {
+				// 超过唤醒间隔时间，发送唤醒包
 				go s.sendWakePacket(host)
 			}
 		} else {

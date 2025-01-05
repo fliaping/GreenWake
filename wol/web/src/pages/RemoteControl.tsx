@@ -8,8 +8,6 @@ import { AxiosError } from 'axios';
 const { Title } = Typography;
 const { Panel } = Collapse;
 
-const REFRESH_INTERVAL = 30;
-
 const formatDate = (date: string) => {
   return new Date(date).toLocaleString('zh-CN', {
     year: 'numeric',
@@ -42,6 +40,25 @@ const RemoteControl: React.FC = () => {
   const [countdowns, setCountdowns] = useState<Record<string, number>>({});
   const [refreshingHosts, setRefreshingHosts] = useState<Record<string, boolean>>({});
   const [loadingHosts, setLoadingHosts] = useState<Record<string, boolean>>({});
+  const [refreshInterval, setRefreshInterval] = useState<number>(30); // 默认30秒
+
+  // 获取配置信息
+  useEffect(() => {
+    const loadConfig = async () => {
+      try {
+        const config = await pcStatusApi.getConfig();
+        if (config.refreshInterval) {
+          setRefreshInterval(config.refreshInterval);
+        }
+      } catch (err) {
+        const error = err as AxiosError<APIError>;
+        console.error('获取配置信息失败:', error);
+        message.error(`获取配置信息失败: ${error.response?.data?.error || error.message}`);
+      }
+    };
+
+    loadConfig();
+  }, []);
 
   // 获取单个主机的状态和相关信息
   const fetchHostData = async (hostName: string, keepAwake?: boolean) => {
@@ -65,7 +82,7 @@ const RemoteControl: React.FC = () => {
         });
 
       await Promise.all([statusPromise, clientsPromise, channelsPromise]);
-      setCountdowns(prev => ({ ...prev, [hostName]: REFRESH_INTERVAL }));
+      setCountdowns(prev => ({ ...prev, [hostName]: refreshInterval }));
     } catch (error) {
       console.error(`获取主机 ${hostName} 数据失败:`, error);
     } finally {
@@ -86,7 +103,7 @@ const RemoteControl: React.FC = () => {
         const initialCountdowns: Record<string, number> = {};
         const initialLoadingStates: Record<string, boolean> = {};
         hostsData.forEach(host => {
-          initialCountdowns[host.name] = REFRESH_INTERVAL;
+          initialCountdowns[host.name] = refreshInterval;
           initialLoadingStates[host.name] = true;
         });
         setCountdowns(initialCountdowns);
@@ -108,7 +125,7 @@ const RemoteControl: React.FC = () => {
     };
 
     loadHosts();
-  }, []);
+  }, [refreshInterval]);
 
   // 每个主机的自动刷新倒计时
   useEffect(() => {
@@ -124,7 +141,7 @@ const RemoteControl: React.FC = () => {
               // 倒计时结束，刷新该主机数据
               const settings = pcStatusApi.getKeepAwakeSettings();
               fetchHostData(host.name, settings[host.name]);
-              newCountdowns[host.name] = REFRESH_INTERVAL;
+              newCountdowns[host.name] = refreshInterval;
             }
             needsUpdate = true;
           }
@@ -135,7 +152,7 @@ const RemoteControl: React.FC = () => {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [hosts]);
+  }, [hosts, refreshInterval]);
 
   const handleKeepAwakeChange = async (hostName: string, checked: boolean) => {
     try {
@@ -278,7 +295,7 @@ const RemoteControl: React.FC = () => {
     const status = hostStatuses[host.name];
     const clients = hostClients[host.name] || [];
     const channels = hostChannels[host.name] || [];
-    const countdown = countdowns[host.name] || REFRESH_INTERVAL;
+    const countdown = countdowns[host.name] || refreshInterval;
 
     return (
       <Card 

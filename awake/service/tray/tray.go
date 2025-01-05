@@ -16,6 +16,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/driver/desktop"
+	"gopkg.in/yaml.v3"
 )
 
 type TrayService struct {
@@ -44,7 +45,7 @@ func NewTrayService(wakeLockService *wakelock.Service) *TrayService {
 		autoStartMgr:    autoStartMgr,
 	}
 
-	// 设置更新回调函数
+	// 设置更新回调函数，用于更新UI显示
 	wakeLockService.SetUpdateCallback(func() {
 		if s.desk != nil {
 			s.desk.SetSystemTrayMenu(s.createMenu())
@@ -65,7 +66,6 @@ func (s *TrayService) createMenu() *fyne.Menu {
 			Checked: s.wakeLockService.GetStrategy() == wakelock.StrategyTimed && s.wakeLockService.GetDuration() == 30*time.Minute,
 			Action: func() {
 				s.wakeLockService.SetStrategy(wakelock.StrategyTimed, 30*time.Minute)
-				s.desk.SetSystemTrayMenu(s.createMenu())
 			},
 		},
 		&fyne.MenuItem{
@@ -73,7 +73,6 @@ func (s *TrayService) createMenu() *fyne.Menu {
 			Checked: s.wakeLockService.GetStrategy() == wakelock.StrategyTimed && s.wakeLockService.GetDuration() == time.Hour,
 			Action: func() {
 				s.wakeLockService.SetStrategy(wakelock.StrategyTimed, time.Hour)
-				s.desk.SetSystemTrayMenu(s.createMenu())
 			},
 		},
 		&fyne.MenuItem{
@@ -81,7 +80,6 @@ func (s *TrayService) createMenu() *fyne.Menu {
 			Checked: s.wakeLockService.GetStrategy() == wakelock.StrategyTimed && s.wakeLockService.GetDuration() == 2*time.Hour,
 			Action: func() {
 				s.wakeLockService.SetStrategy(wakelock.StrategyTimed, 2*time.Hour)
-				s.desk.SetSystemTrayMenu(s.createMenu())
 			},
 		},
 		&fyne.MenuItem{
@@ -89,7 +87,6 @@ func (s *TrayService) createMenu() *fyne.Menu {
 			Checked: s.wakeLockService.GetStrategy() == wakelock.StrategyTimed && s.wakeLockService.GetDuration() == 4*time.Hour,
 			Action: func() {
 				s.wakeLockService.SetStrategy(wakelock.StrategyTimed, 4*time.Hour)
-				s.desk.SetSystemTrayMenu(s.createMenu())
 			},
 		},
 		fyne.NewMenuItemSeparator(),
@@ -110,7 +107,6 @@ func (s *TrayService) createMenu() *fyne.Menu {
 				if minutes > 0 {
 					duration := time.Duration(minutes) * time.Minute
 					s.wakeLockService.SetStrategy(wakelock.StrategyTimed, duration)
-					s.desk.SetSystemTrayMenu(s.createMenu())
 				}
 			},
 		},
@@ -123,7 +119,6 @@ func (s *TrayService) createMenu() *fyne.Menu {
 			Checked: s.wakeLockService.GetSleepMode() == wakelock.SleepModeSystem,
 			Action: func() {
 				s.wakeLockService.SetSleepMode(wakelock.SleepModeSystem)
-				s.desk.SetSystemTrayMenu(s.createMenu())
 			},
 		},
 		&fyne.MenuItem{
@@ -131,7 +126,6 @@ func (s *TrayService) createMenu() *fyne.Menu {
 			Checked: s.wakeLockService.GetSleepMode() == wakelock.SleepModeProgram,
 			Action: func() {
 				s.wakeLockService.SetSleepMode(wakelock.SleepModeProgram)
-				s.desk.SetSystemTrayMenu(s.createMenu())
 			},
 		},
 	)
@@ -174,7 +168,7 @@ func (s *TrayService) createMenu() *fyne.Menu {
 	}
 
 	// 创建主菜单
-	return fyne.NewMenu(i18n.T("app.name"),
+	menuItems := []*fyne.MenuItem{
 		&fyne.MenuItem{
 			Label:   wakeStatusLabel,
 			Checked: false,
@@ -191,7 +185,6 @@ func (s *TrayService) createMenu() *fyne.Menu {
 			Checked: s.wakeLockService.GetStrategy() == wakelock.StrategyWolWake,
 			Action: func() {
 				s.wakeLockService.SetStrategy(wakelock.StrategyWolWake, 0)
-				s.desk.SetSystemTrayMenu(s.createMenu())
 			},
 		},
 		&fyne.MenuItem{
@@ -199,7 +192,6 @@ func (s *TrayService) createMenu() *fyne.Menu {
 			Checked: s.wakeLockService.GetStrategy() == wakelock.StrategyPermanent,
 			Action: func() {
 				s.wakeLockService.SetStrategy(wakelock.StrategyPermanent, 0)
-				s.desk.SetSystemTrayMenu(s.createMenu())
 			},
 		},
 		&fyne.MenuItem{
@@ -214,12 +206,23 @@ func (s *TrayService) createMenu() *fyne.Menu {
 		},
 		fyne.NewMenuItemSeparator(),
 		&fyne.MenuItem{
+			Label: i18n.T("menu.show_prevent_sleep"),
+			Action: func() {
+				dialog.ShowPreventSleepProcesses(s.window, s.wakeLockService)
+			},
+		},
+		fyne.NewMenuItemSeparator(),
+		&fyne.MenuItem{
 			Label: i18n.T("menu.quit"),
 			Action: func() {
 				s.app.Quit()
 			},
 		},
-	)
+	}
+
+	menu := fyne.NewMenu(i18n.T("app.name"), menuItems...)
+	s.menu = menu // 保存菜单引用
+	return menu
 }
 
 func (s *TrayService) Start() {
@@ -337,7 +340,100 @@ func (s *TrayService) Stop() {
 	}
 }
 
-func (s *TrayService) SetConfig(cfg *config.Config, path string) {
+func (s *TrayService) SetConfig(cfg *config.Config, configPath string) {
+	logger.Debug("[SetConfig] 开始设置配置: path=%s, config=%+v", configPath, cfg)
 	s.config = cfg
-	s.configPath = path
+	s.configPath = configPath
+
+	// 设置默认值
+	if cfg.Initial.Strategy == "" {
+		cfg.Initial.Strategy = string(wakelock.StrategyWolWake)
+	}
+	if cfg.Initial.SleepMode == "" {
+		cfg.Initial.SleepMode = string(wakelock.SleepModeProgram)
+	}
+
+	// 设置初始策略和睡眠模式
+	logger.Info("已从配置文件加载策略: %s, 睡眠模式: %s", cfg.Initial.Strategy, cfg.Initial.SleepMode)
+	s.wakeLockService.InitializeState(
+		wakelock.Strategy(cfg.Initial.Strategy),
+		wakelock.SleepMode(cfg.Initial.SleepMode),
+		parseDuration(cfg.Initial.Duration),
+	)
+
+	// 更新菜单项状态
+	s.updateMenuItemStates(
+		wakelock.Strategy(cfg.Initial.Strategy),
+		wakelock.SleepMode(cfg.Initial.SleepMode),
+		parseDuration(cfg.Initial.Duration),
+	)
+}
+
+func (s *TrayService) SaveConfig() error {
+	logger.Debug("[SaveConfig] 开始保存配置")
+	if s.config == nil {
+		return fmt.Errorf("配置为空")
+	}
+
+	// 更新配置
+	s.config.Initial.Strategy = string(s.wakeLockService.GetStrategy())
+	s.config.Initial.SleepMode = string(s.wakeLockService.GetSleepMode())
+	if s.wakeLockService.GetStrategy() == wakelock.StrategyTimed {
+		s.config.Initial.Duration = formatDuration(s.wakeLockService.GetDuration())
+	}
+
+	// 保存配置
+	data, err := yaml.Marshal(s.config)
+	if err != nil {
+		return fmt.Errorf("序列化配置失败: %v", err)
+	}
+
+	// 确保配置目录存在
+	if err := os.MkdirAll(filepath.Dir(s.configPath), 0755); err != nil {
+		return fmt.Errorf("创建配置目录失败: %v", err)
+	}
+
+	// 写入文件
+	if err := os.WriteFile(s.configPath, data, 0644); err != nil {
+		return fmt.Errorf("写入配置文件失败: %v", err)
+	}
+
+	logger.Debug("[SaveConfig] 配置保存成功")
+	return nil
+}
+
+// parseDuration 解析持续时间字符串
+func parseDuration(durationStr string) time.Duration {
+	if durationStr == "" {
+		return 30 * time.Minute // 默认30分钟
+	}
+	duration, err := time.ParseDuration(durationStr)
+	if err != nil {
+		logger.Error("解析持续时间失败: %v，使用默认值30分钟", err)
+		return 30 * time.Minute
+	}
+	return duration
+}
+
+// formatDuration 格式化持续时间
+func formatDuration(duration time.Duration) string {
+	return duration.String()
+}
+
+// updateMenuItemStates 更新菜单项的状态
+func (s *TrayService) updateMenuItemStates(strategy wakelock.Strategy, sleepMode wakelock.SleepMode, duration time.Duration) {
+	if s.menu == nil {
+		return
+	}
+
+	// 更新模式状态
+	s.currentMode = string(strategy)
+	if s.modeItem != nil {
+		s.modeItem.Checked = true
+	}
+
+	// 更新剩余时间显示
+	if duration > 0 {
+		s.remainingTime = formatDuration(duration)
+	}
 }

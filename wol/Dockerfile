@@ -28,7 +28,7 @@ RUN apk add --no-cache ca-certificates tzdata \
 WORKDIR /app
 COPY --from=builder /app/wol ./wol
 COPY --from=web_builder /web/dist ./web/dist
-COPY config.yml ./
+COPY config.yaml ./
 
 EXPOSE 8055
 CMD ["/app/wol"]

@@ -45,7 +45,7 @@ forwards:  # 端口转发配置
 1. 准备配置文件
 
 ```bash
-vim ./config.yml  # 编辑配置文件
+vim ./config.yaml  # 编辑配置文件
 ```
 
 2. 运行容器
@@ -55,7 +55,7 @@ docker run -d \
   --name wol \
   --restart unless-stopped \
   -p 8055:8055 \
-  -v ./config.yml:/app/config.yml \
+  -v ./config.yaml:/app/config.yaml \
   xuping/my-wol:latest
 ```
 
@@ -90,11 +90,11 @@ task install-deps
 go mod tidy 
 
 # 直接运行
-go run cmd/server/main.go -config config.yml
+go run cmd/server/main.go -config config.yaml
 
 # 或者构建&运行
 go build -o wol ./cmd/server
-./wol -config config.yml
+./wol -config config.yaml
 
 ```
 
@@ -114,7 +114,7 @@ go build -o wol ./cmd/server
 ├── web/                # 前端代码
 │   ├── src/
 │   └── package.json
-└── config.yml         # 配置文件
+└── config.yaml         # 配置文件
 ```
 
 ### 前端开发
@@ -145,7 +145,7 @@ npm run build
 1. 开发环境启动
 
 ```bash
-go run ./cmd/server -config config.yml
+go run ./cmd/server -config config.yaml
 ```
 
 2. 构建

@@ -12,8 +12,8 @@ node_modules/
 *.log
 
 # 配置文件（除了示例配置）
-config.yml
-!config.example.yml
+config.yaml
+!config.example.yaml
 
 # macOS
 .DS_Store

@@ -1,20 +1,12 @@
-package config
-
-import (
-	"os"
-	"path/filepath"
-	"strings"
-
-	"gopkg.in/yaml.v3"
-)
-
-// Config 配置结构
 type Config struct {
 	// 程序控制睡眠模式下等待睡眠时间（秒）
 	ProgramSleepDelay int `yaml:"program_sleep_delay"`
 
 	// 唤醒包相关配置
-	WolWake WolWakeConfig `yaml:"wol_wake"`
+	WolWake struct {
+		WolPort           int `yaml:"wol_port"`            // 唤醒包监听端口
+		WolTimeoutMinutes int `yaml:"wol_timeout_minutes"` // 唤醒包超时时间（分钟）
+	} `yaml:"wol_wake"`
 
 	// 自动启动配置
 	AutoStart bool `yaml:"auto_start"`
@@ -45,36 +37,4 @@ func (c *WolWakeConfig) GetValidEvents() []string {
 		events[i] = strings.TrimSpace(events[i])
 	}
 	return events
-}
-
-// LoadConfig 从文件加载配置
-func LoadConfig(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, err
-	}
-
-	return &cfg, nil
-}
-
-// GetConfigPath 获取配置文件路径
-func GetConfigPath() string {
-	// 获取用户配置目录
-	configDir, err := os.UserConfigDir()
-	if err != nil {
-		return "config.yaml"
-	}
-
-	// 拼接应用配置目录
-	appConfigDir := filepath.Join(configDir, "awake")
-	if err := os.MkdirAll(appConfigDir, 0755); err != nil {
-		return "config.yaml"
-	}
-
-	return filepath.Join(appConfigDir, "config.yaml")
-}
+} 

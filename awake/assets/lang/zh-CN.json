@@ -30,5 +30,9 @@
     "error.autostart.enable": "启用自启动失败: %v",
     "error.autostart.disable": "禁用自启动失败: %v",
     "error.dialog": "显示时间选择对话框失败: %v",
-    "error.sleep": "强制系统睡眠失败: %v"
+    "error.sleep": "强制系统睡眠失败: %v",
+    "menu.show_prevent_sleep": "显示阻止休眠的进程",
+    "menu.prevent_sleep_title": "阻止休眠的进程",
+    "menu.prevent_sleep_list": "以下进程正在阻止系统休眠：",
+    "menu.no_prevent_sleep": "当前没有进程阻止系统休眠"
 } 

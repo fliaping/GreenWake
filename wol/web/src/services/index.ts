@@ -33,6 +33,9 @@ export const pcStatusApi = {
   getHosts: () => api.get<{ success: boolean; data: PCHostInfo[] }>('/pc/hosts')
     .then(res => res.data),
   
+  getConfig: () => api.get<{ success: boolean; data: { refreshInterval: number } }>('/pc/config')
+    .then(res => res.data.data),
+
   getHostStatus: async (hostName: string, keepAwake?: boolean) => {
     const url = keepAwake ? 
       `/pc/${hostName}/status?keepAwake=true` : 

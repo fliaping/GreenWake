@@ -10,6 +10,8 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 
+	"my-wol/internal/config"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -17,13 +19,15 @@ type Handler struct {
 	pcService      *service.PCService
 	clientService  *service.ClientService
 	forwardService *service.ForwardService
+	config         *config.Config
 }
 
-func NewHandler(pcService *service.PCService, clientService *service.ClientService, forwardService *service.ForwardService) *Handler {
+func NewHandler(pcService *service.PCService, clientService *service.ClientService, forwardService *service.ForwardService, config *config.Config) *Handler {
 	return &Handler{
 		pcService:      pcService,
 		clientService:  clientService,
 		forwardService: forwardService,
+		config:         config,
 	}
 }
 
@@ -98,5 +102,19 @@ func (h *Handler) GetHostChannels(c *gin.Context) {
 	c.JSON(http.StatusOK, model.Response{
 		Success: true,
 		Data:    channels,
+	})
+}
+
+func (h *Handler) GetConfig(c *gin.Context) {
+	refreshInterval := h.config.HTTP.RefreshInterval
+	if refreshInterval <= 0 {
+		refreshInterval = 30
+	}
+
+	c.JSON(http.StatusOK, model.Response{
+		Success: true,
+		Data: gin.H{
+			"refreshInterval": refreshInterval,
+		},
 	})
 }
