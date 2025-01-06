@@ -93,7 +93,7 @@ jobs:
         run: |
           cd greenwake-guard
           mkdir -p build/windows
-          go build -ldflags "-s -w -H=windowsgui -X main.Version=$env:VERSION" -o build/windows/greenwake-guard.exe ./cmd/guard
+          go build -tags "no_cgo fyne_no_glfw fyne_no_gl" -ldflags "-s -w -H=windowsgui -X main.Version=$env:VERSION" -o build/windows/greenwake-guard.exe ./cmd/guard
           powershell -ExecutionPolicy Bypass -File script/windows/build.ps1
         shell: bash
           
@@ -106,14 +106,10 @@ jobs:
   build-linux:
     strategy:
       matrix:
-        arch: [amd64, arm64]
+        arch: [amd64]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      
-      - name: Set up QEMU
-        if: matrix.arch == 'arm64'
-        uses: docker/setup-qemu-action@v3
       
       - name: Set up Go
         uses: actions/setup-go@v4
@@ -137,42 +133,20 @@ jobs:
 
       - name: Install dependencies
         run: |
-          sudo sed -i 's/noble/jammy/g' /etc/apt/sources.list
-          sudo dpkg --add-architecture arm64
           sudo apt-get update
-          sudo apt-get install -y build-essential rpm dpkg-dev pkg-config
-          if [ "${{ matrix.arch }}" = "arm64" ]; then
-            sudo apt-get install -y \
-              gcc-aarch64-linux-gnu \
-              g++-aarch64-linux-gnu \
-              libc6-dev-arm64-cross \
-              libgl1-mesa-dev:arm64 \
-              libx11-dev:arm64 \
-              libxcursor-dev:arm64 \
-              libxrandr-dev:arm64 \
-              libxinerama-dev:arm64 \
-              libxi-dev:arm64 \
-              libxxf86vm-dev:arm64
-          else
-            sudo apt-get install -y \
-              libgl1-mesa-dev \
-              libx11-dev \
-              libxcursor-dev \
-              libxrandr-dev \
-              libxinerama-dev \
-              libxi-dev \
-              libxxf86vm-dev
-          fi
+          sudo apt-get install -y build-essential rpm dpkg-dev pkg-config \
+            libgl1-mesa-dev \
+            libx11-dev \
+            libxcursor-dev \
+            libxrandr-dev \
+            libxinerama-dev \
+            libxi-dev \
+            libxxf86vm-dev
 
       - name: Build Linux App
         env:
           GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: 1
-          CC: ${{ matrix.arch == 'arm64' && 'aarch64-linux-gnu-gcc' || 'gcc' }}
-          CXX: ${{ matrix.arch == 'arm64' && 'aarch64-linux-gnu-g++' || 'g++' }}
-          PKG_CONFIG_PATH: ${{ matrix.arch == 'arm64' && '/usr/lib/aarch64-linux-gnu/pkgconfig' || '/usr/lib/x86_64-linux-gnu/pkgconfig' }}
-          CGO_CFLAGS: ${{ matrix.arch == 'arm64' && '-I/usr/aarch64-linux-gnu/include' || '' }}
-          CGO_LDFLAGS: ${{ matrix.arch == 'arm64' && '-L/usr/aarch64-linux-gnu/lib' || '' }}
         run: |
           cd greenwake-guard
           chmod +x script/linux/build.sh
@@ -238,11 +212,11 @@ jobs:
             artifacts/windows-amd64/GreenwakeGuard_Setup_*.exe
             # artifacts/windows-arm64/GreenwakeGuard_Setup_*.exe
             artifacts/linux-deb-amd64/greenwake-guard_*.deb
-            artifacts/linux-deb-arm64/greenwake-guard_*.deb
+            # artifacts/linux-deb-arm64/greenwake-guard_*.deb
             artifacts/linux-rpm-amd64/greenwake-guard-*.rpm
-            artifacts/linux-rpm-arm64/greenwake-guard-*.rpm
+            # artifacts/linux-rpm-arm64/greenwake-guard-*.rpm
             artifacts/linux-shell-amd64/GreenwakeGuard_*.sh
-            artifacts/linux-shell-arm64/GreenwakeGuard_*.sh
+            # artifacts/linux-shell-arm64/GreenwakeGuard_*.sh
           draft: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
