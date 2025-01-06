@@ -1,74 +1,74 @@
-# 设置错误时立即退出
+# Set error action to stop immediately
 $ErrorActionPreference = "Stop"
 
-# 获取脚本所在目录的绝对路径
+# Get script directory absolute path
 $SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
-# 获取项目根目录
+# Get project root directory
 $PROJECT_ROOT = (Get-Item $SCRIPT_DIR).Parent.Parent.FullName
 
-# 设置变量
+# Set variables
 $APP_NAME = "Greenwake Guard"
-$VERSION = if ($env:VERSION) { $env:VERSION } else { "0.0.1" }  # 如果环境变量未设置，使用默认值
-$ARCH = if ($env:GOARCH) { $env:GOARCH } else { "amd64" }  # 如果未设置GOARCH，默认为amd64
+$VERSION = if ($env:VERSION) { $env:VERSION } else { "0.0.1" }  # Use default if VERSION not set
+$ARCH = if ($env:GOARCH) { $env:GOARCH } else { "amd64" }  # Use default if GOARCH not set
 $BUILD_DIR = Join-Path $PROJECT_ROOT "build\windows"
 $DIST_DIR = Join-Path $BUILD_DIR "dist"
 $RESOURCES_DIR = Join-Path $DIST_DIR "assets"
 
-# 清理旧的构建目录
+# Clean old build directory
 if (Test-Path $BUILD_DIR) {
     Remove-Item -Recurse -Force $BUILD_DIR -ErrorAction Stop
 }
 
-# 创建目录结构
-Write-Host "创建目录结构..."
+# Create directory structure
+Write-Host "Creating directory structure..."
 try {
     New-Item -ItemType Directory -Force -Path $DIST_DIR -ErrorAction Stop | Out-Null
     New-Item -ItemType Directory -Force -Path $RESOURCES_DIR -ErrorAction Stop | Out-Null
 } catch {
-    Write-Host "创建目录失败: $_"
+    Write-Host "Failed to create directories: $_"
     exit 1
 }
 
-# 编译应用
-Write-Host "编译应用..."
+# Build application
+Write-Host "Building application..."
 try {
     Push-Location $PROJECT_ROOT
     $env:CGO_ENABLED = "1"
     $env:GOOS = "windows"
     
-    # 使用 Start-Process 来捕获 go build 的错误
+    # Use Start-Process to capture go build errors
     $buildProcess = Start-Process -FilePath "go" -ArgumentList "build", "-ldflags", "`"-s -w -H=windowsgui -X main.Version=$VERSION`"", "-o", "$DIST_DIR\greenwake-guard.exe", ".\cmd\guard" -Wait -NoNewWindow -PassThru
     if ($buildProcess.ExitCode -ne 0) {
-        throw "编译应用失败"
+        throw "Failed to build application"
     }
 } catch {
-    Write-Host "编译失败: $_"
+    Write-Host "Build failed: $_"
     exit 1
 } finally {
     Pop-Location
 }
 
-# 复制资源文件
-Write-Host "复制资源文件..."
+# Copy resource files
+Write-Host "Copying resource files..."
 try {
     if (Test-Path (Join-Path $PROJECT_ROOT "assets")) {
-        # 创建资源目录
+        # Create resource directories
         New-Item -ItemType Directory -Force -Path (Join-Path $RESOURCES_DIR "lang") -ErrorAction Stop | Out-Null
         New-Item -ItemType Directory -Force -Path (Join-Path $RESOURCES_DIR "icons") -ErrorAction Stop | Out-Null
         
-        # 复制语言文件
+        # Copy language files
         Copy-Item (Join-Path $PROJECT_ROOT "assets\lang\*.json") (Join-Path $RESOURCES_DIR "lang") -ErrorAction Stop
-        # 复制图标文件
+        # Copy icon files
         Copy-Item (Join-Path $PROJECT_ROOT "assets\icons\*") (Join-Path $RESOURCES_DIR "icons") -ErrorAction Stop
     } else {
-        throw "没有找到assets目录: $PROJECT_ROOT\assets"
+        throw "Assets directory not found: $PROJECT_ROOT\assets"
     }
 } catch {
-    Write-Host "复制资源文件失败: $_"
+    Write-Host "Failed to copy resource files: $_"
     exit 1
 }
 
-# 创建 Inno Setup 脚本
+# Create Inno Setup script
 $SETUP_SCRIPT = @"
 #define MyAppName "Greenwake Guard"
 #define MyAppVersion "$VERSION"
@@ -101,7 +101,7 @@ Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.i
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
-Name: "autostart"; Description: "开机自动启动"; GroupDescription: "其他选项:"; Flags: unchecked
+Name: "autostart"; Description: "Auto start with Windows"; GroupDescription: "Additional options:"; Flags: unchecked
 
 [Files]
 Source: "$DIST_DIR\greenwake-guard.exe"; DestDir: "{app}"; Flags: ignoreversion
@@ -119,26 +119,26 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChang
 "@
 
 try {
-    # 保存 Inno Setup 脚本
+    # Save Inno Setup script
     $SETUP_SCRIPT | Out-File -Encoding UTF8 (Join-Path $BUILD_DIR "setup.iss") -ErrorAction Stop
 
-    # 检查是否安装了 Inno Setup
+    # Check if Inno Setup is installed
     $INNO_SETUP = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1" -ErrorAction SilentlyContinue).InstallLocation
     if (-not $INNO_SETUP) {
-        throw "未安装 Inno Setup，请先安装 Inno Setup 6: https://jrsoftware.org/isdl.php"
+        throw "Inno Setup not found. Please install Inno Setup 6: https://jrsoftware.org/isdl.php"
     }
 
-    # 编译安装包
-    Write-Host "创建安装包..."
+    # Build installer
+    Write-Host "Creating installer..."
     $ISCC = Join-Path $INNO_SETUP "ISCC.exe"
     $compileProcess = Start-Process -FilePath $ISCC -ArgumentList (Join-Path $BUILD_DIR "setup.iss") -Wait -NoNewWindow -PassThru
     if ($compileProcess.ExitCode -ne 0) {
-        throw "创建安装包失败"
+        throw "Failed to create installer"
     }
 
-    Write-Host "打包完成！"
-    Write-Host "安装包位置: $BUILD_DIR\GreenwakeGuard_Setup_${VERSION}_${ARCH}.exe"
+    Write-Host "Build completed successfully!"
+    Write-Host "Installer location: $BUILD_DIR\GreenwakeGuard_Setup_${VERSION}_${ARCH}.exe"
 } catch {
-    Write-Host "创建安装包失败: $_"
+    Write-Host "Failed to create installer: $_"
     exit 1
 } 

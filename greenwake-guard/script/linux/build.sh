@@ -36,20 +36,45 @@ mkdir -p "$INSTALLER_DIR" || { echo "创建安装程序目录失败"; exit 1; }
 # 安装依赖
 echo "安装依赖..."
 sudo apt-get update || { echo "更新包列表失败"; exit 1; }
+
+# 安装基础依赖
 sudo apt-get install -y \
     build-essential \
     rpm \
     dpkg-dev \
     gcc-aarch64-linux-gnu \
-    libgl1-mesa-dev \
-    xorg-dev \
-    pkg-config \
-    libx11-dev \
-    libxcursor-dev \
-    libxrandr-dev \
-    libxinerama-dev \
-    libxi-dev \
-    libxxf86vm-dev || { echo "安装依赖失败"; exit 1; }
+    pkg-config || { echo "安装基础依赖失败"; exit 1; }
+
+# 根据架构安装不同的依赖
+if [ "$ARCH" = "arm64" ]; then
+    # 安装 ARM64 架构的开发库
+    sudo apt-get install -y \
+        libgl1-mesa-dev:arm64 \
+        libx11-dev:arm64 \
+        libxcursor-dev:arm64 \
+        libxrandr-dev:arm64 \
+        libxinerama-dev:arm64 \
+        libxi-dev:arm64 \
+        libxxf86vm-dev:arm64 \
+        libxkbcommon-dev:arm64 \
+        libwayland-dev:arm64 || { echo "安装 ARM64 开发库失败"; exit 1; }
+else
+    # 安装 AMD64 架构的开发库
+    sudo apt-get install -y \
+        libgl1-mesa-dev \
+        libx11-dev \
+        libxcursor-dev \
+        libxrandr-dev \
+        libxinerama-dev \
+        libxi-dev \
+        libxxf86vm-dev || { echo "安装 AMD64 开发库失败"; exit 1; }
+fi
+
+# 添加 ARM64 架构支持
+if [ "$ARCH" = "arm64" ]; then
+    sudo dpkg --add-architecture arm64 || { echo "添加 ARM64 架构支持失败"; exit 1; }
+    sudo apt-get update || { echo "更新包列表失败"; exit 1; }
+fi
 
 # 编译应用
 echo "编译应用..."
