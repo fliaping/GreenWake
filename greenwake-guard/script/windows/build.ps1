@@ -37,13 +37,20 @@ try {
     $env:GOOS = "windows"
     
     # Build flags for different architectures
-    $buildFlags = "-ldflags `"-s -w -H=windowsgui -X main.Version=$VERSION`""
-    if ($ARCH -eq "arm64") {
-        $buildFlags = "$buildFlags -tags `"no_cgo fyne_no_glfw`""
-    }
+    $buildFlags = "-ldflags=-s -w -H=windowsgui -X main.Version=$VERSION"
+    $buildTags = "no_cgo,fyne_no_glfw,fyne_no_gl"
+    
+    # Build command arguments
+    $buildArgs = @(
+        "build",
+        "-tags", $buildTags,
+        $buildFlags.Split(' '),
+        "-o", "$DIST_DIR\greenwake-guard.exe",
+        ".\cmd\guard"
+    )
     
     # Use Start-Process to capture go build errors
-    $buildProcess = Start-Process -FilePath "go" -ArgumentList ("build", $buildFlags -split ' ' + "-o", "$DIST_DIR\greenwake-guard.exe", ".\cmd\guard") -Wait -NoNewWindow -PassThru
+    $buildProcess = Start-Process -FilePath "go" -ArgumentList $buildArgs -Wait -NoNewWindow -PassThru
     if ($buildProcess.ExitCode -ne 0) {
         throw "Failed to build application"
     }
