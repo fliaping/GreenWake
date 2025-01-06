@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"awake/pkg/i18n"
 	"awake/pkg/logger"
@@ -68,6 +69,33 @@ func ShowPreventSleepProcesses(parent fyne.Window, wakeLockService *wakelock.Ser
 		tabs,
 	)
 
+	// 创建状态文本
+	var statusText string
+	switch wakeLockService.GetStrategy() {
+	case wakelock.StrategyExternalWake:
+		if len(processes) == 0 {
+			statusText = i18n.T("menu.no_prevent_sleep")
+		} else {
+			var processNames []string
+			for _, p := range processes {
+				processNames = append(processNames, p.Name)
+			}
+			statusText = i18n.T("menu.prevent_sleep_list") + "\n" + strings.Join(processNames, "\n")
+		}
+	default:
+		statusText = i18n.T("menu.no_prevent_sleep")
+	}
+
+	// 添加状态文本到布局
+	statusLabel := widget.NewLabel(statusText)
+	content = container.NewBorder(
+		container.NewVBox(helpText, widget.NewSeparator(), statusLabel),
+		nil,
+		nil,
+		nil,
+		tabs,
+	)
+
 	w.SetContent(content)
 	w.Show()
 }
@@ -122,7 +150,7 @@ func createProcessTable(processes []system.PreventSleepProcess, wakeLockService 
 	// 添加本程序的状态（如果正在阻止休眠）
 	strategy := wakeLockService.GetStrategy()
 	if strategy == wakelock.StrategyPermanent || strategy == wakelock.StrategyTimed ||
-		(strategy == wakelock.StrategyWolWake && wakeLockService.GetRemainingTime() > 0) {
+		(strategy == wakelock.StrategyExternalWake && wakeLockService.GetRemainingTime() > 0) {
 		// 检查是否已经在系统进程列表中
 		found := false
 		for _, p := range processes {
@@ -139,8 +167,8 @@ func createProcessTable(processes []system.PreventSleepProcess, wakeLockService 
 				details = "当前唤醒策略：永久唤醒"
 			case wakelock.StrategyTimed:
 				details = fmt.Sprintf("当前唤醒策略：计时唤醒%s", wakeLockService.FormatRemainingTime())
-			case wakelock.StrategyWolWake:
-				details = fmt.Sprintf("当前唤醒策略：WOL唤醒%s", wakeLockService.FormatRemainingTime())
+			case wakelock.StrategyExternalWake:
+				details = fmt.Sprintf("当前唤醒策略：外部唤醒%s", wakeLockService.FormatRemainingTime())
 			}
 
 			awakeProcess := system.PreventSleepProcess{

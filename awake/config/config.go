@@ -8,43 +8,41 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const (
+	// 默认配置值
+	DefaultStrategy          = "external_wake"
+	DefaultSleepMode         = "program"
+	DefaultTimedDuration     = "30m"
+	DefaultProgramSleepDelay = 60
+	DefaultWolPort           = 9
+	DefaultTimeoutSecs       = 300
+	DefaultValidEvents       = "wol,device"
+	DefaultLogLevel          = "debug" // 默认日志级别
+)
+
 // Config 配置结构
 type Config struct {
-	// 程序控制睡眠模式下等待睡眠时间（秒）
-	ProgramSleepDelay int `yaml:"program_sleep_delay"`
-
-	// 唤醒包相关配置
-	WolWake WolWakeConfig `yaml:"wol_wake"`
-
-	// 自动启动配置
-	AutoStart bool `yaml:"auto_start"`
-
-	// 初始配置
-	Initial struct {
-		Strategy  string `yaml:"strategy"`   // 初始唤醒策略
-		SleepMode string `yaml:"sleep_mode"` // 初始睡眠模式
-		Duration  string `yaml:"duration"`   // 初始计时时长
-	} `yaml:"initial"`
+	Strategy          string       `yaml:"strategy"`            // 唤醒策略
+	SleepMode         string       `yaml:"sleep_mode"`          // 睡眠模式
+	TimedDuration     string       `yaml:"timed_duration"`      // 定时唤醒持续时间
+	ExternalWake      ExternalWake `yaml:"external_wake"`       // 外部唤醒相关配置
+	ProgramSleepDelay int          `yaml:"program_sleep_delay"` // 程序控制睡眠模式下等待睡眠时间
+	LogLevel          string       `yaml:"log_level"`           // 日志级别
 }
 
-// WolWakeConfig WOL唤醒配置
-type WolWakeConfig struct {
-	WolPort        int    `yaml:"wol_port"`         // WOL端口
-	WolTimeoutSecs int    `yaml:"wol_timeout_secs"` // WOL超时时间（秒）
-	ValidEvents    string `yaml:"valid_events"`     // 有效的唤醒事件类型，多个类型用逗号分隔
+// ExternalWake 外部唤醒相关配置
+type ExternalWake struct {
+	WolPort     int    `yaml:"wol_port"`     // 唤醒包监听端口
+	TimeoutSecs int    `yaml:"timeout_secs"` // 唤醒超时时间
+	ValidEvents string `yaml:"valid_events"` // 有效的唤醒事件类型
 }
 
 // GetValidEvents 获取有效的唤醒事件类型列表
-func (c *WolWakeConfig) GetValidEvents() []string {
-	if c.ValidEvents == "" {
-		return []string{"wol", "keyboard", "mouse"} // 默认值
+func (w *ExternalWake) GetValidEvents() []string {
+	if w.ValidEvents == "" {
+		return strings.Split(DefaultValidEvents, ",")
 	}
-	events := strings.Split(c.ValidEvents, ",")
-	// 去除空格
-	for i := range events {
-		events[i] = strings.TrimSpace(events[i])
-	}
-	return events
+	return strings.Split(w.ValidEvents, ",")
 }
 
 // LoadConfig 从文件加载配置
@@ -57,6 +55,32 @@ func LoadConfig(path string) (*Config, error) {
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, err
+	}
+
+	// 设置默认值
+	if cfg.Strategy == "" {
+		cfg.Strategy = DefaultStrategy
+	}
+	if cfg.SleepMode == "" {
+		cfg.SleepMode = DefaultSleepMode
+	}
+	if cfg.TimedDuration == "" {
+		cfg.TimedDuration = DefaultTimedDuration
+	}
+	if cfg.ProgramSleepDelay == 0 {
+		cfg.ProgramSleepDelay = DefaultProgramSleepDelay
+	}
+	if cfg.ExternalWake.WolPort == 0 {
+		cfg.ExternalWake.WolPort = DefaultWolPort
+	}
+	if cfg.ExternalWake.TimeoutSecs == 0 {
+		cfg.ExternalWake.TimeoutSecs = DefaultTimeoutSecs
+	}
+	if cfg.ExternalWake.ValidEvents == "" {
+		cfg.ExternalWake.ValidEvents = DefaultValidEvents
+	}
+	if cfg.LogLevel == "" {
+		cfg.LogLevel = DefaultLogLevel
 	}
 
 	return &cfg, nil
@@ -77,4 +101,15 @@ func GetConfigPath() string {
 	}
 
 	return filepath.Join(appConfigDir, "config.yaml")
+}
+
+// IsEventTypeValid 检查事件类型是否有效
+func (c *Config) IsEventTypeValid(eventType string) bool {
+	validEvents := c.ExternalWake.GetValidEvents()
+	for _, event := range validEvents {
+		if event == eventType {
+			return true
+		}
+	}
+	return false
 }

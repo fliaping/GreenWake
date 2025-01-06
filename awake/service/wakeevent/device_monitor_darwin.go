@@ -5,18 +5,29 @@ package wakeevent
 
 import (
 	"bufio"
-	"fmt"
 	"os/exec"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
+	"awake/config"
 	"awake/pkg/logger"
+)
+
+const (
+	// ActivityCheckInterval 设备活动检查间隔
+	ActivityCheckInterval = 15 * time.Second
 )
 
 // darwinDeviceMonitor macOS设备监听器
 type darwinDeviceMonitor struct {
 	handler Handler
+	config  *config.Config
 	done    chan struct{}
+	// 添加监控状态标志
+	monitoring atomic.Bool
+	mu         sync.Mutex
 }
 
 // newPlatformDeviceMonitor 创建macOS平台的设备监听器
@@ -36,21 +47,19 @@ func (m *darwinDeviceMonitor) Start() error {
 
 // monitorUserActivity 监听用户活动
 func (m *darwinDeviceMonitor) monitorUserActivity() {
-	logger.Debug("开始监控用户活动, 30秒检查一次")
-	ticker := time.NewTicker(30 * time.Second) // 降低检查频率
+	logger.Debug("开始监控用户活动, 每 %v 检查一次", ActivityCheckInterval)
+	ticker := time.NewTicker(ActivityCheckInterval)
 	defer ticker.Stop()
 
-	var lastActivity time.Time
-	var lastLogTime time.Time
-	for {
+	for m.monitoring.Load() {
 		select {
 		case <-m.done:
 			logger.Info("停止监控用户活动")
 			return
 		case <-ticker.C:
 			logger.Debug("执行活动检查...")
-			// 使用 pmset 命令检查用户活动日志，并通过管道传递给 tail 命令限制输出行数
-			cmd := exec.Command("sh", "-c", "pmset -g log | tail -n 1000")
+			// 使用 pmset -g assertions 命令检查当前系统断言
+			cmd := exec.Command("pmset", "-g", "assertions")
 			output, err := cmd.Output()
 			if err != nil {
 				logger.Error("检查用户活动失败: %v", err)
@@ -58,86 +67,61 @@ func (m *darwinDeviceMonitor) monitorUserActivity() {
 			}
 			logger.Debug("pmset 命令输出长度: %d 字节", len(output))
 
-			// 解析输出寻找用户活动
-			if hasRecentActivity(string(output), lastLogTime) {
+			// 检查是否有活动
+			if hasUserActivity(string(output)) {
 				now := time.Now()
-				// 至少间隔5秒才触发一次事件
-				if now.Sub(lastActivity) >= 5*time.Second {
-					logger.Info("检测到用户活动，距离上次活动: %v", now.Sub(lastActivity))
-					m.handler.HandleWakeEvent(Event{
-						Type:      EventTypeKeyboard,
-						Timestamp: now,
-						Source:    "user_activity",
-					})
-					lastActivity = now
-				} else {
-					logger.Debug("活动间隔太短，跳过: %v", now.Sub(lastActivity))
-				}
+				logger.Debug("检测到用户活动")
+				m.handler.HandleWakeEvent(Event{
+					Type:      EventTypeDevice,
+					Timestamp: now,
+					Source:    "user_activity",
+				})
 			} else {
-				logger.Debug("未检测到最近的用户活动")
+				logger.Debug("未检测到用户活动")
 			}
-			lastLogTime = time.Now()
 		}
 	}
 }
 
-// hasRecentActivity 检查是否有最近的用户活动
-func hasRecentActivity(output string, lastCheck time.Time) bool {
-	logger.Debug("开始解析 pmset 输出，只看 %v 之后的日志...", lastCheck)
-	lineCount := 0
-	activityCount := 0
-	var latestActivity time.Time
+// hasUserActivity 检查是否有用户活动
+func hasUserActivity(output string) bool {
+	var hasUserIsActive bool
 	scanner := bufio.NewScanner(strings.NewReader(output))
 
-	// 限制最多读取1000行
-	const maxLines = 1000
-	for scanner.Scan() && lineCount < maxLines {
+	for scanner.Scan() {
 		line := scanner.Text()
-		lineCount++
-		// 检查是否包含用户活动相关的关键字
 		if strings.Contains(line, "UserIsActive") {
-			activityCount++
-			logger.Debug("发现用户活动日志[%d]: %s", activityCount, line)
-			// 解析时间戳
-			if timestamp, err := parseTimestamp(line); err == nil {
-				// 更新最新活动时间
-				if timestamp.After(latestActivity) {
-					latestActivity = timestamp
-				}
-				// 只关注上次检查之后的活动
-				if timestamp.After(lastCheck) {
-					timeSince := time.Since(timestamp)
-					logger.Debug("发现新活动，发生于 %v 之前", timeSince)
-					return true
-				}
-			} else {
-				logger.Debug("解析时间戳失败: %v", err)
-			}
+			hasUserIsActive = true
+			logger.Debug("发现 UserIsActive 标记: %s", line)
 		}
 	}
-
-	if lineCount >= maxLines {
-		logger.Debug("达到最大行数限制(%d行)，停止解析", maxLines)
-	}
-
-	logger.Debug("完成日志解析，共 %d 行，发现 %d 条活动记录，最新活动时间: %v", lineCount, activityCount, latestActivity)
-	return false
-}
-
-// parseTimestamp 解析日志中的时间戳
-func parseTimestamp(line string) (time.Time, error) {
-	// 日志格式示例: "2024-12-29 18:26:13 +0800"
-	parts := strings.SplitN(line, " ", 3)
-	if len(parts) >= 2 {
-		dateStr := parts[0] + " " + parts[1]
-		logger.Debug("尝试解析时间戳: %s", dateStr)
-		return time.ParseInLocation("2006-01-02 15:04:05", dateStr, time.Local)
-	}
-	return time.Time{}, fmt.Errorf("invalid timestamp format: %s", line)
+	return hasUserIsActive
 }
 
 // Stop 停止监听
 func (m *darwinDeviceMonitor) Stop() error {
 	close(m.done)
 	return nil
+}
+
+// UpdateConfig 更新配置
+func (m *darwinDeviceMonitor) UpdateConfig(config *config.Config) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.config = config
+	if config.IsEventTypeValid(string(EventTypeDevice)) {
+		// 如果当前没有监控且配置允许监控，则启动监控
+		if !m.monitoring.Load() {
+			m.monitoring.Store(true)
+			go m.monitorUserActivity()
+		}
+	} else {
+		// 如果正在监控但配置不允许监控，则停止监控
+		if m.monitoring.Load() {
+			m.monitoring.Store(false)
+			close(m.done)
+			m.done = make(chan struct{}) // 重新创建channel以供后续使用
+		}
+	}
 }

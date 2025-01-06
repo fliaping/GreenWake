@@ -1,5 +1,5 @@
-# 唤醒策略：wol_wake（唤醒包策略）、permanent（永久唤醒）、timed（定时唤醒）
-strategy: "wol_wake"
+# 唤醒策略：external_wake（外部唤醒）、permanent（永久唤醒）、timed（定时唤醒）
+strategy: "external_wake"
 
 # 睡眠模式：system（系统控制）、program（程序控制）
 sleep_mode: "program"
@@ -7,14 +7,14 @@ sleep_mode: "program"
 # 定时唤醒的持续时间（分钟），仅在 strategy 为 timed 时有效
 timed_duration: 30
 
-# 唤醒包相关配置
-wol_wake:
+# 外部唤醒相关配置
+external_wake:
   # 唤醒包监听端口
   wol_port: 9
   # 唤醒超时时间（秒），超时后如果没有新的活动将进入睡眠
-  wol_timeout_secs: 300
+  timeout_secs: 300
   # 有效的唤醒事件类型，多个类型用逗号分隔（wol,keyboard,mouse）
   valid_events: "wol,keyboard,mouse"
 
 # 程序控制睡眠模式下等待睡眠时间（秒）
-program_sleep_delay: 60 
+program_sleep_delay: 60

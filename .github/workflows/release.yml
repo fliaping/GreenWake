@@ -1,0 +1,200 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  GO_VERSION: '1.21'
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          
+      - name: Get version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+          
+      - name: Go Cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Install create-dmg
+        run: brew install create-dmg
+        
+      - name: Build macOS App
+        run: |
+          chmod +x script/macos/build.sh
+          ./script/macos/build.sh
+          
+      - name: Upload macOS Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: macos-universal
+          path: build/macos/Awake.dmg
+          
+  build-windows:
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          
+      - name: Get version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+        shell: bash
+
+      - name: Go Cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-${{ matrix.arch }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.arch }}-go-
+          
+      - name: Install Inno Setup
+        run: |
+          $installer = "innosetup-6.2.2.exe"
+          Invoke-WebRequest "https://files.jrsoftware.org/is/6/$installer" -OutFile $installer
+          Start-Process -FilePath .\$installer -Args "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-" -Wait
+          
+      - name: Build Windows App
+        env:
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          powershell -ExecutionPolicy Bypass -File script/windows/build.ps1
+          
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: windows-${{ matrix.arch }}
+          path: build/windows/Awake_Setup_*.exe
+          
+  build-linux:
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Get version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+
+      - name: Go Cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-${{ matrix.arch }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.arch }}-go-
+
+      - name: Set up QEMU
+        if: matrix.arch == 'arm64'
+        uses: docker/setup-qemu-action@v2
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential rpm dpkg-dev gcc-aarch64-linux-gnu
+
+      - name: Build Linux App
+        env:
+          GOARCH: ${{ matrix.arch }}
+          CC: ${{ matrix.arch == 'arm64' && 'aarch64-linux-gnu-gcc' || 'gcc' }}
+        run: |
+          chmod +x script/linux/build.sh
+          ./script/linux/build.sh
+
+      - name: Upload DEB Package
+        uses: actions/upload-artifact@v3
+        with:
+          name: linux-deb-${{ matrix.arch }}
+          path: build/linux/awake_*_${{ matrix.arch }}.deb
+
+      - name: Upload RPM Package
+        uses: actions/upload-artifact@v3
+        with:
+          name: linux-rpm-${{ matrix.arch }}
+          path: build/linux/awake-*.${{ matrix.arch }}.rpm
+
+      - name: Upload Shell Installer
+        uses: actions/upload-artifact@v3
+        with:
+          name: linux-shell-${{ matrix.arch }}
+          path: build/linux/Awake_*_${{ matrix.arch }}.sh
+          
+  create-release:
+    needs: [build-macos, build-windows, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          
+      - name: Get version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+        
+      - name: Generate changelog
+        id: changelog
+        run: |
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -z "$PREVIOUS_TAG" ]; then
+            git log --pretty=format:"* %s" > CHANGELOG.md
+          else
+            git log --pretty=format:"* %s" $PREVIOUS_TAG..HEAD > CHANGELOG.md
+          fi
+          
+      - name: Download Artifacts
+        uses: actions/download-artifact@v3
+        
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Awake ${{ env.VERSION }}
+          body_path: CHANGELOG.md
+          files: |
+            macos-universal/Awake.dmg
+            windows-amd64/Awake_Setup_*.exe
+            windows-arm64/Awake_Setup_*.exe
+            linux-deb-amd64/awake_*.deb
+            linux-deb-arm64/awake_*.deb
+            linux-rpm-amd64/awake-*.rpm
+            linux-rpm-arm64/awake-*.rpm
+            linux-shell-amd64/Awake_*.sh
+            linux-shell-arm64/Awake_*.sh
+          draft: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 

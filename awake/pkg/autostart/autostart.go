@@ -1,6 +1,7 @@
 package autostart
 
 import (
+	"awake/pkg/logger"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,9 +14,10 @@ type Manager struct {
 	appName   string
 	execPath  string
 	autoStart bool
+	onQuit    func() // 退出回调函数
 }
 
-func NewManager(appName string) (*Manager, error) {
+func NewManager(appName string, onQuit func()) (*Manager, error) {
 	execPath, err := os.Executable()
 	if err != nil {
 		return nil, err
@@ -24,7 +26,46 @@ func NewManager(appName string) (*Manager, error) {
 	return &Manager{
 		appName:  appName,
 		execPath: execPath,
+		onQuit:   onQuit,
 	}, nil
+}
+
+// IsLaunchedByService 检查当前进程是否由服务启动
+func (m *Manager) IsLaunchedByService() bool {
+	switch runtime.GOOS {
+	case "darwin":
+		// 检查是否由 launchd 启动
+		ppid := os.Getppid()
+		out, err := exec.Command("ps", "-p", fmt.Sprintf("%d", ppid), "-o", "comm=").Output()
+		if err != nil {
+			return false
+		}
+		return string(out) == "launchd\n"
+	case "linux":
+		// 检查是否由 systemd 启动
+		ppid := os.Getppid()
+		out, err := exec.Command("ps", "-p", fmt.Sprintf("%d", ppid), "-o", "comm=").Output()
+		if err != nil {
+			return false
+		}
+		return string(out) == "systemd\n"
+	default:
+		return false
+	}
+}
+
+// Disable 禁用自启动
+func (m *Manager) Disable() error {
+	var err error
+	switch runtime.GOOS {
+	case "windows":
+		err = m.disableWindows()
+	case "darwin":
+		err = m.disableMac()
+	default:
+		err = m.disableLinux()
+	}
+	return err
 }
 
 func (m *Manager) Enable() error {
@@ -35,17 +76,6 @@ func (m *Manager) Enable() error {
 		return m.enableMac()
 	default:
 		return m.enableLinux()
-	}
-}
-
-func (m *Manager) Disable() error {
-	switch runtime.GOOS {
-	case "windows":
-		return m.disableWindows()
-	case "darwin":
-		return m.disableMac()
-	default:
-		return m.disableLinux()
 	}
 }
 
@@ -63,17 +93,29 @@ func (m *Manager) IsEnabled() bool {
 // Windows 实现
 func (m *Manager) enableWindows() error {
 	startupDir := filepath.Join(os.Getenv("APPDATA"), "Microsoft", "Windows", "Start Menu", "Programs", "Startup")
+	// 确保目录存在
+	if err := os.MkdirAll(startupDir, 0755); err != nil {
+		return fmt.Errorf("创建启动目录失败: %v", err)
+	}
+
 	shortcutPath := filepath.Join(startupDir, m.appName+".lnk")
+	workingDir := filepath.Dir(m.execPath)
 
 	script := fmt.Sprintf(`
 		$WS = New-Object -ComObject WScript.Shell
 		$Shortcut = $WS.CreateShortcut("%s")
 		$Shortcut.TargetPath = "%s"
+		$Shortcut.WorkingDirectory = "%s"
+		$Shortcut.Description = "系统唤醒服务"
+		$Shortcut.WindowStyle = 7
 		$Shortcut.Save()
-	`, shortcutPath, m.execPath)
+	`, shortcutPath, m.execPath, workingDir)
 
 	cmd := exec.Command("powershell", "-Command", script)
-	return cmd.Run()
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("创建快捷方式失败: %v", err)
+	}
+	return nil
 }
 
 // macOS 实现
@@ -96,25 +138,59 @@ func (m *Manager) enableMac() error {
 </dict>
 </plist>`, m.appName, m.execPath)
 
-	return os.WriteFile(plistPath, []byte(plistContent), 0644)
+	if err := os.WriteFile(plistPath, []byte(plistContent), 0644); err != nil {
+		return fmt.Errorf("写入 plist 文件失败: %v", err)
+	}
+
+	// 加载 plist
+	cmd := exec.Command("launchctl", "load", plistPath)
+	if err := cmd.Run(); err != nil {
+		os.Remove(plistPath) // 如果加载失败，清理文件
+		return fmt.Errorf("加载 plist 失败: %v", err)
+	}
+
+	return nil
 }
 
 // Linux 实现
 func (m *Manager) enableLinux() error {
-	autostartDir := filepath.Join(os.Getenv("HOME"), ".config", "autostart")
-	if err := os.MkdirAll(autostartDir, 0755); err != nil {
-		return err
+	systemdDir := filepath.Join(os.Getenv("HOME"), ".config", "systemd", "user")
+	if err := os.MkdirAll(systemdDir, 0755); err != nil {
+		return fmt.Errorf("创建 systemd 用户目录失败: %v", err)
 	}
 
-	desktopFile := filepath.Join(autostartDir, m.appName+".desktop")
-	content := fmt.Sprintf(`[Desktop Entry]
-Type=Application
-Name=%s
-Exec=%s
-Terminal=false
-Hidden=false`, m.appName, m.execPath)
+	serviceFile := filepath.Join(systemdDir, fmt.Sprintf("%s.service", m.appName))
+	content := fmt.Sprintf(`[Unit]
+Description=系统唤醒服务
+After=network.target
 
-	return os.WriteFile(desktopFile, []byte(content), 0644)
+[Service]
+Type=simple
+ExecStart=%s
+WorkingDirectory=%s
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target`, m.execPath, filepath.Dir(m.execPath))
+
+	if err := os.WriteFile(serviceFile, []byte(content), 0644); err != nil {
+		return fmt.Errorf("写入 service 文件失败: %v", err)
+	}
+
+	// 重新加载 systemd 用户配置
+	reloadCmd := exec.Command("systemctl", "--user", "daemon-reload")
+	if err := reloadCmd.Run(); err != nil {
+		return fmt.Errorf("重新加载 systemd 配置失败: %v", err)
+	}
+
+	// 启用服务
+	enableCmd := exec.Command("systemctl", "--user", "enable", fmt.Sprintf("%s.service", m.appName))
+	if err := enableCmd.Run(); err != nil {
+		return fmt.Errorf("启用 systemd 服务失败: %v", err)
+	}
+
+	return nil
 }
 
 // Windows 实现
@@ -134,10 +210,23 @@ func (m *Manager) isEnabledWindows() bool {
 // macOS 实现
 func (m *Manager) disableMac() error {
 	plistPath := filepath.Join(os.Getenv("HOME"), "Library", "LaunchAgents", fmt.Sprintf("com.%s.plist", m.appName))
-	if err := os.Remove(plistPath); err != nil && !os.IsNotExist(err) {
-		return err
+
+	// 先停止服务
+	if err := exec.Command("launchctl", "stop", fmt.Sprintf("com.%s", m.appName)).Run(); err != nil {
+		logger.Debug("停止服务失败: %v", err)
 	}
-	return exec.Command("launchctl", "unload", plistPath).Run()
+
+	// 再卸载服务
+	if err := exec.Command("launchctl", "unload", "-w", plistPath).Run(); err != nil {
+		logger.Debug("卸载服务失败: %v", err)
+	}
+
+	// 最后删除文件
+	if err := os.Remove(plistPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("删除 plist 文件失败: %v", err)
+	}
+
+	return nil
 }
 
 func (m *Manager) isEnabledMac() bool {
@@ -146,14 +235,39 @@ func (m *Manager) isEnabledMac() bool {
 	return err == nil
 }
 
-// Linux 实现
+// Linux 禁用自启动
 func (m *Manager) disableLinux() error {
-	desktopFile := filepath.Join(os.Getenv("HOME"), ".config", "autostart", m.appName+".desktop")
-	return os.Remove(desktopFile)
+	serviceName := fmt.Sprintf("%s.service", m.appName)
+
+	// 先停止服务
+	stopCmd := exec.Command("systemctl", "--user", "stop", serviceName)
+	if err := stopCmd.Run(); err != nil {
+		logger.Debug("停止服务失败: %v", err)
+	}
+
+	// 禁用服务
+	disableCmd := exec.Command("systemctl", "--user", "disable", serviceName)
+	if err := disableCmd.Run(); err != nil {
+		logger.Debug("禁用服务失败: %v", err)
+	}
+
+	// 重新加载配置
+	reloadCmd := exec.Command("systemctl", "--user", "daemon-reload")
+	if err := reloadCmd.Run(); err != nil {
+		logger.Debug("重新加载配置失败: %v", err)
+	}
+
+	// 删除服务文件
+	serviceFile := filepath.Join(os.Getenv("HOME"), ".config", "systemd", "user", serviceName)
+	if err := os.Remove(serviceFile); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("删除 service 文件失败: %v", err)
+	}
+
+	return nil
 }
 
+// Linux 检查自启动状态
 func (m *Manager) isEnabledLinux() bool {
-	desktopFile := filepath.Join(os.Getenv("HOME"), ".config", "autostart", m.appName+".desktop")
-	_, err := os.Stat(desktopFile)
-	return err == nil
+	cmd := exec.Command("systemctl", "--user", "is-enabled", fmt.Sprintf("%s.service", m.appName))
+	return cmd.Run() == nil
 }

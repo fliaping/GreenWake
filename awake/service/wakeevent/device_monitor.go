@@ -1,8 +1,13 @@
 package wakeevent
 
+import "awake/config"
+
 // DeviceMonitor 设备监听器接口
 type DeviceMonitor interface {
-	Monitor
+	Start() error
+	Stop() error
+	// 添加更新配置的方法
+	UpdateConfig(config *config.Config)
 }
 
 // platformDeviceMonitor 平台特定的设备监听器实现

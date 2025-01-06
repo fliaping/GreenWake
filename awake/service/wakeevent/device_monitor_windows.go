@@ -4,10 +4,13 @@
 package wakeevent
 
 import (
+	"atomic"
+	"sync"
 	"syscall"
 	"time"
 	"unsafe"
 
+	"awake/config"
 	"awake/pkg/logger"
 )
 
@@ -26,7 +29,12 @@ const (
 // windowsDeviceMonitor Windows设备监听器
 type windowsDeviceMonitor struct {
 	handler Handler
+	config  *config.Config
 	done    chan struct{}
+	// 添加监控状态标志
+	monitoringKeyboard atomic.Bool
+	monitoringMouse    atomic.Bool
+	mu                 sync.Mutex
 }
 
 // newPlatformDeviceMonitor 创建Windows平台的设备监听器
@@ -46,10 +54,37 @@ func (m *windowsDeviceMonitor) Start() error {
 	return nil
 }
 
+func (m *windowsDeviceMonitor) UpdateConfig(config *Config) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.config = config
+
+	// 处理键盘监控
+	if config.IsEventTypeValid(string(EventTypeDevice)) {
+		if !m.monitoringKeyboard.Load() {
+			m.monitoringKeyboard.Store(true)
+			go m.startKeyboardHook()
+		}
+	} else {
+		m.monitoringKeyboard.Store(false)
+	}
+
+	// 处理鼠标监控
+	if config.IsEventTypeValid(string(EventTypeDevice)) {
+		if !m.monitoringMouse.Load() {
+			m.monitoringMouse.Store(true)
+			go m.startMouseHook()
+		}
+	} else {
+		m.monitoringMouse.Store(false)
+	}
+}
+
 func (m *windowsDeviceMonitor) startKeyboardHook() {
 	hook, err := setWindowsHookEx(WH_KEYBOARD_LL, func(code int, wparam, lparam uintptr) uintptr {
 		m.handler.HandleWakeEvent(Event{
-			Type:      EventTypeKeyboard,
+			Type:      EventTypeDevice,
 			Timestamp: time.Now(),
 			Source:    "keyboard",
 		})
@@ -70,7 +105,7 @@ func (m *windowsDeviceMonitor) startKeyboardHook() {
 		Point  struct{ X, Y int32 }
 	}
 
-	for {
+	for m.monitoringKeyboard.Load() {
 		select {
 		case <-m.done:
 			return
@@ -83,7 +118,7 @@ func (m *windowsDeviceMonitor) startKeyboardHook() {
 func (m *windowsDeviceMonitor) startMouseHook() {
 	hook, err := setWindowsHookEx(WH_MOUSE_LL, func(code int, wparam, lparam uintptr) uintptr {
 		m.handler.HandleWakeEvent(Event{
-			Type:      EventTypeMouse,
+			Type:      EventTypeDevice,
 			Timestamp: time.Now(),
 			Source:    "mouse",
 		})
@@ -104,7 +139,7 @@ func (m *windowsDeviceMonitor) startMouseHook() {
 		Point  struct{ X, Y int32 }
 	}
 
-	for {
+	for m.monitoringMouse.Load() {
 		select {
 		case <-m.done:
 			return

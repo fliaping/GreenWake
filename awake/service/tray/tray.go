@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"awake/config"
@@ -16,6 +17,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/theme"
 	"gopkg.in/yaml.v3"
 )
 
@@ -34,14 +36,13 @@ type TrayService struct {
 }
 
 func NewTrayService(wakeLockService *wakelock.Service) *TrayService {
-	autoStartMgr, err := autostart.NewManager("awake")
+	autoStartMgr, err := autostart.NewManager("awake", nil)
 	if err != nil {
 		logger.Error("创建自启动管理器失败: %v", err)
 	}
 
 	s := &TrayService{
 		wakeLockService: wakeLockService,
-		currentMode:     "packet",
 		autoStartMgr:    autoStartMgr,
 	}
 
@@ -51,6 +52,9 @@ func NewTrayService(wakeLockService *wakelock.Service) *TrayService {
 			s.desk.SetSystemTrayMenu(s.createMenu())
 		}
 	})
+
+	// 设置配置保存回调函数
+	wakeLockService.SetSaveConfigCallback(s.SaveConfig)
 
 	return s
 }
@@ -141,11 +145,11 @@ func (s *TrayService) createMenu() *fyne.Menu {
 	wakeStatusLabel = i18n.T("menu.status.wake") + ": "
 
 	// 记录当前策略
-	logger.Debug("当前策略: %v", s.wakeLockService.GetStrategy())
+	logger.Info("当前策略: %v", s.wakeLockService.GetStrategy())
 
 	switch s.wakeLockService.GetStrategy() {
-	case wakelock.StrategyWolWake:
-		wakeStatusLabel += i18n.T("menu.wol_wake")
+	case wakelock.StrategyExternalWake:
+		wakeStatusLabel += i18n.T("menu.external_wake")
 	case wakelock.StrategyPermanent:
 		wakeStatusLabel += i18n.T("menu.permanent")
 	case wakelock.StrategyTimed:
@@ -167,6 +171,36 @@ func (s *TrayService) createMenu() *fyne.Menu {
 		sleepStatusLabel += i18n.T("menu.sleep.program")
 	}
 
+	// 创建唤醒源子菜单
+	wakeSourceMenu := fyne.NewMenu(i18n.T("menu.wake_source"),
+		&fyne.MenuItem{
+			Label:   i18n.T("menu.wake_source.wol"),
+			Checked: containsString(s.wakeLockService.GetValidEvents(), "wol"),
+			Action: func() {
+				events := s.wakeLockService.GetValidEvents()
+				if containsString(events, "wol") {
+					events = removeString(events, "wol")
+				} else {
+					events = append(events, "wol")
+				}
+				s.wakeLockService.SetValidEvents(events)
+			},
+		},
+		&fyne.MenuItem{
+			Label:   i18n.T("menu.wake_source.device"),
+			Checked: containsString(s.wakeLockService.GetValidEvents(), "device"),
+			Action: func() {
+				events := s.wakeLockService.GetValidEvents()
+				if containsString(events, "device") {
+					events = removeString(events, "device")
+				} else {
+					events = append(events, "device")
+				}
+				s.wakeLockService.SetValidEvents(events)
+			},
+		},
+	)
+
 	// 创建主菜单
 	menuItems := []*fyne.MenuItem{
 		&fyne.MenuItem{
@@ -181,11 +215,12 @@ func (s *TrayService) createMenu() *fyne.Menu {
 		},
 		fyne.NewMenuItemSeparator(),
 		&fyne.MenuItem{
-			Label:   i18n.T("menu.wol_wake"),
-			Checked: s.wakeLockService.GetStrategy() == wakelock.StrategyWolWake,
+			Label:   i18n.T("menu.external_wake"),
+			Checked: s.wakeLockService.GetStrategy() == wakelock.StrategyExternalWake,
 			Action: func() {
-				s.wakeLockService.SetStrategy(wakelock.StrategyWolWake, 0)
+				s.wakeLockService.SetStrategy(wakelock.StrategyExternalWake, 0)
 			},
+			ChildMenu: wakeSourceMenu,
 		},
 		&fyne.MenuItem{
 			Label:   i18n.T("menu.permanent"),
@@ -209,6 +244,43 @@ func (s *TrayService) createMenu() *fyne.Menu {
 			Label: i18n.T("menu.show_prevent_sleep"),
 			Action: func() {
 				dialog.ShowPreventSleepProcesses(s.window, s.wakeLockService)
+			},
+		},
+		&fyne.MenuItem{
+			Label:   i18n.T("menu.autostart"),
+			Checked: s.autoStartMgr.IsEnabled(),
+			Action: func() {
+				// 立即更新显示状态
+				isEnabled := s.autoStartMgr.IsEnabled()
+				newState := !isEnabled
+				for _, item := range s.menu.Items {
+					if item.Label == i18n.T("menu.autostart") {
+						item.Checked = newState
+						break
+					}
+				}
+				s.desk.SetSystemTrayMenu(s.menu)
+
+				// 异步处理自启动设置
+				go func() {
+					var err error
+					if newState {
+						err = s.autoStartMgr.Enable()
+					} else {
+						err = s.autoStartMgr.Disable()
+					}
+					if err != nil {
+						logger.Error("设置自启动失败: %v", err)
+						// 如果设置失败，恢复显示状态
+						for _, item := range s.menu.Items {
+							if item.Label == i18n.T("menu.autostart") {
+								item.Checked = isEnabled
+								break
+							}
+						}
+						s.desk.SetSystemTrayMenu(s.menu)
+					}
+				}()
 			},
 		},
 		fyne.NewMenuItemSeparator(),
@@ -244,6 +316,9 @@ func (s *TrayService) Start() {
 	}
 
 	s.app = app.NewWithID("com.fliaping.awake")
+	// 设置应用跟随系统主题
+	s.app.Settings().SetTheme(theme.DefaultTheme())
+
 	s.window = s.app.NewWindow(i18n.T("app.name"))
 	s.window.SetIcon(getIcon())
 	s.window.Resize(fyne.NewSize(300, 200))
@@ -253,8 +328,9 @@ func (s *TrayService) Start() {
 	if s.desk, ok = s.app.(desktop.App); ok {
 		// 设置托盘图标
 		s.desk.SetSystemTrayIcon(getIcon())
-		// 设置托盘菜单
-		s.desk.SetSystemTrayMenu(s.createMenu())
+		// 设置托盘菜单，并移除默认的退出菜单
+		menu := s.createMenu()
+		s.desk.SetSystemTrayMenu(menu)
 	}
 
 	// 设置窗口关闭行为
@@ -275,8 +351,8 @@ func (s *TrayService) updateModeStatus() {
 	// 更新菜单项选中状态
 	for _, item := range s.menu.Items {
 		switch item.Label {
-		case i18n.T("menu.wol_wake"):
-			item.Checked = strategy == wakelock.StrategyWolWake
+		case i18n.T("menu.external_wake"):
+			item.Checked = strategy == wakelock.StrategyExternalWake
 		case i18n.T("menu.permanent"):
 			item.Checked = strategy == wakelock.StrategyPermanent
 		case i18n.T("menu.timed"):
@@ -335,37 +411,27 @@ func (s *TrayService) updateModeStatus() {
 }
 
 func (s *TrayService) Stop() {
-	if s.app != nil {
-		s.app.Quit()
+	if s.app == nil {
+		return
+	}
+	// 在主线程上执行清理操作
+	if s.desk != nil {
+		s.desk.SetSystemTrayMenu(nil)
+		s.desk.SetSystemTrayIcon(nil)
 	}
 }
 
 func (s *TrayService) SetConfig(cfg *config.Config, configPath string) {
-	logger.Debug("[SetConfig] 开始设置配置: path=%s, config=%+v", configPath, cfg)
+	logger.Info("[SetConfig] 读取配置: path=%s, config=%+v", configPath, cfg)
 	s.config = cfg
 	s.configPath = configPath
-
-	// 设置默认值
-	if cfg.Initial.Strategy == "" {
-		cfg.Initial.Strategy = string(wakelock.StrategyWolWake)
-	}
-	if cfg.Initial.SleepMode == "" {
-		cfg.Initial.SleepMode = string(wakelock.SleepModeProgram)
-	}
-
-	// 设置初始策略和睡眠模式
-	logger.Info("已从配置文件加载策略: %s, 睡眠模式: %s", cfg.Initial.Strategy, cfg.Initial.SleepMode)
-	s.wakeLockService.InitializeState(
-		wakelock.Strategy(cfg.Initial.Strategy),
-		wakelock.SleepMode(cfg.Initial.SleepMode),
-		parseDuration(cfg.Initial.Duration),
-	)
+	s.currentMode = string(s.wakeLockService.GetStrategy())
 
 	// 更新菜单项状态
 	s.updateMenuItemStates(
-		wakelock.Strategy(cfg.Initial.Strategy),
-		wakelock.SleepMode(cfg.Initial.SleepMode),
-		parseDuration(cfg.Initial.Duration),
+		s.wakeLockService.GetStrategy(),
+		s.wakeLockService.GetSleepMode(),
+		s.wakeLockService.GetDuration(),
 	)
 }
 
@@ -376,11 +442,15 @@ func (s *TrayService) SaveConfig() error {
 	}
 
 	// 更新配置
-	s.config.Initial.Strategy = string(s.wakeLockService.GetStrategy())
-	s.config.Initial.SleepMode = string(s.wakeLockService.GetSleepMode())
+	s.config.Strategy = string(s.wakeLockService.GetStrategy())
+	s.config.SleepMode = string(s.wakeLockService.GetSleepMode())
 	if s.wakeLockService.GetStrategy() == wakelock.StrategyTimed {
-		s.config.Initial.Duration = formatDuration(s.wakeLockService.GetDuration())
+		s.config.TimedDuration = formatDuration(s.wakeLockService.GetDuration())
 	}
+	// 保存有效的唤醒事件类型
+	s.config.ExternalWake.ValidEvents = strings.Join(s.wakeLockService.GetValidEvents(), ",")
+	// 保存超时时间
+	s.config.ExternalWake.TimeoutSecs = s.wakeLockService.GetTimeoutSecs()
 
 	// 保存配置
 	data, err := yaml.Marshal(s.config)
@@ -405,12 +475,12 @@ func (s *TrayService) SaveConfig() error {
 // parseDuration 解析持续时间字符串
 func parseDuration(durationStr string) time.Duration {
 	if durationStr == "" {
-		return 30 * time.Minute // 默认30分钟
+		durationStr = config.DefaultTimedDuration
 	}
 	duration, err := time.ParseDuration(durationStr)
 	if err != nil {
-		logger.Error("解析持续时间失败: %v，使用默认值30分钟", err)
-		return 30 * time.Minute
+		logger.Error("解析持续时间失败: %v，使用默认值%s", err, config.DefaultTimedDuration)
+		duration, _ = time.ParseDuration(config.DefaultTimedDuration)
 	}
 	return duration
 }
@@ -436,4 +506,24 @@ func (s *TrayService) updateMenuItemStates(strategy wakelock.Strategy, sleepMode
 	if duration > 0 {
 		s.remainingTime = formatDuration(duration)
 	}
+}
+
+// 添加辅助函数
+func containsString(slice []string, str string) bool {
+	for _, s := range slice {
+		if s == str {
+			return true
+		}
+	}
+	return false
+}
+
+func removeString(slice []string, str string) []string {
+	result := make([]string, 0, len(slice))
+	for _, s := range slice {
+		if s != str {
+			result = append(result, s)
+		}
+	}
+	return result
 }

@@ -5,6 +5,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"awake/config"
 	"awake/pkg/logger"
 	"awake/service/wakeevent"
 )
@@ -13,46 +14,49 @@ type Strategy string
 type SleepMode string
 
 const (
-	StrategyWolWake   Strategy  = "wol_wake"
-	StrategyPermanent Strategy  = "permanent" // 永久唤醒
-	StrategyTimed     Strategy  = "timed"     // 定时唤醒
-	SleepModeSystem   SleepMode = "system"    // 系统控制
-	SleepModeProgram  SleepMode = "program"   // 程序控制
+	StrategyExternalWake Strategy  = "external_wake" // 外部唤醒
+	StrategyPermanent    Strategy  = "permanent"     // 永久唤醒
+	StrategyTimed        Strategy  = "timed"         // 定时唤醒
+	SleepModeSystem      SleepMode = "system"        // 系统控制
+	SleepModeProgram     SleepMode = "program"       // 程序控制
 )
 
 // Service 唤醒锁服务
 type Service struct {
-	strategy               Strategy            // 当前策略
-	sleepMode              SleepMode           // 睡眠模式（系统控制/程序控制）
-	isTemporaryWake        int32               // 是否处于临时唤醒状态（收到唤醒包或计时唤醒）
-	programSleepDelay      int                 // 程序控制睡眠模式下等待睡眠时间（秒）
-	wolTimeoutSecs         int                 // WOL 唤醒超时时间（秒）
-	validEvents            []string            // 有效的唤醒事件类型
-	sleepTimer             *time.Timer         // 睡眠定时器
-	timerStartTime         time.Time           // 定时器启动时间
-	done                   chan struct{}       // 用于停止检查定时器
-	lastWakeEvent          wakeevent.EventType // 最后一次唤醒事件类型
-	remainingTime          int                 // 剩余时间（秒）
-	duration               time.Duration       // 持续时间
-	updateCallback         func()              // 状态更新回调函数
-	strategyChangeCallback func(Strategy)      // 策略变更回调函数
-	lock                   Lock                // 系统唤醒锁
+	strategy                Strategy            // 当前策略
+	sleepMode               SleepMode           // 睡眠模式（系统控制/程序控制）
+	isTemporaryWake         int32               // 是否处于临时唤醒状态（收到唤醒包或计时唤醒）
+	programSleepDelay       int                 // 程序控制睡眠模式下等待睡眠时间（秒）
+	externalWakeTimeoutSecs int                 // 外部唤醒超时时间（秒）
+	validEvents             []string            // 有效的唤醒事件类型
+	sleepTimer              *time.Timer         // 睡眠定时器
+	timerStartTime          time.Time           // 定时器启动时间
+	done                    chan struct{}       // 用于停止检查定时器
+	lastWakeEvent           wakeevent.EventType // 最后一次唤醒事件类型
+	remainingTime           int                 // 剩余时间（秒）
+	duration                time.Duration       // 持续时间
+	updateCallback          func()              // 状态更新回调函数
+	strategyChangeCallback  func(Strategy)      // 策略变更回调函数
+	saveConfigCallback      func() error        // 配置保存回调函数
+	lock                    Lock                // 系统唤醒锁
 }
 
 // NewService 创建新的服务实例
-func NewService(lock Lock) *Service {
+func NewService(lock Lock, cfg *config.Config) *Service {
 	s := &Service{
-		strategy:          StrategyWolWake,
-		sleepMode:         SleepModeProgram,                     // 默认使用程序控制模式
-		programSleepDelay: 60,                                   // 默认60秒
-		wolTimeoutSecs:    300,                                  // 默认5分钟
-		validEvents:       []string{"wol", "keyboard", "mouse"}, // 默认有效事件
-		done:              make(chan struct{}),
-		lock:              lock,
+		strategy:                Strategy(cfg.Strategy),
+		sleepMode:               SleepMode(cfg.SleepMode),
+		programSleepDelay:       cfg.ProgramSleepDelay,
+		externalWakeTimeoutSecs: cfg.ExternalWake.TimeoutSecs,
+		validEvents:             cfg.ExternalWake.GetValidEvents(),
+		done:                    make(chan struct{}),
+		lock:                    lock,
 	}
 
-	// 启动检查定时器
-	go s.runCheckTimer()
+	// 只有在程序控制模式下才启动检查定时器
+	if s.sleepMode == SleepModeProgram {
+		go s.runCheckTimer()
+	}
 
 	logger.Info("创建新的唤醒锁服务 - 初始状态：策略=%v, 睡眠模式=%v", s.strategy, s.sleepMode)
 	return s
@@ -62,7 +66,6 @@ func NewService(lock Lock) *Service {
 func (s *Service) runCheckTimer() {
 	logger.Info("启动睡眠定时器状态检查器")
 	ticker := time.NewTicker(3 * time.Second)
-
 	defer ticker.Stop()
 
 	// 立即执行一次检查
@@ -71,8 +74,14 @@ func (s *Service) runCheckTimer() {
 	for {
 		select {
 		case <-s.done:
+			logger.Debug("检查定时器已停止")
 			return
 		case <-ticker.C:
+			// 如果模式已经切换到系统控制，停止检查定时器
+			if s.sleepMode != SleepModeProgram {
+				logger.Debug("当前为系统控制模式，停止检查定时器")
+				return
+			}
 			s.checkStatus()
 		}
 	}
@@ -107,11 +116,15 @@ func (s *Service) checkStatus() {
 		s.strategy, atomic.LoadInt32(&s.isTemporaryWake) == 1, s.sleepMode, s.sleepTimer != nil, remainingStr, eventTypeStr)
 
 	// 检查是否需要启动睡眠定时器：
-	// 1. 策略是 WOL 唤醒
-	// 2. 不在临时唤醒状态（说明已经超过 WOL 超时时间）
+	// 1. 策略是外部唤醒
+	// 2. 不在临时唤醒状态（说明已经超过超时时间）
 	// 3. 是程序控制模式
 	// 4. 没有运行中的睡眠定时器
-	if s.strategy == StrategyWolWake && atomic.LoadInt32(&s.isTemporaryWake) == 0 && s.sleepMode == SleepModeProgram && s.sleepTimer == nil {
+	// 5. 不是永久唤醒或计时唤醒模式
+	if s.strategy == StrategyExternalWake &&
+		atomic.LoadInt32(&s.isTemporaryWake) == 0 &&
+		s.sleepMode == SleepModeProgram &&
+		s.sleepTimer == nil {
 		logger.Info("满足启动睡眠定时器的条件，启动定时器，延迟时间：%d秒", s.programSleepDelay)
 		s.startSleepTimer()
 	}
@@ -146,25 +159,30 @@ func (s *Service) HandleWakeEvent(event wakeevent.Event) {
 		s.cancelSleepTimer()
 	}
 
+	// 获取唤醒锁，阻止系统睡眠
+	s.lock.Acquire()
+
 	// 设置临时唤醒状态和事件类型
 	atomic.StoreInt32(&s.isTemporaryWake, 1)
 	s.lastWakeEvent = event.Type
 
-	// 如果是程序控制模式，启动 WOL 超时定时器
-	wolTimeoutSecs := s.wolTimeoutSecs
+	// 启动外部唤醒超时定时器
+	externalWakeTimeoutSecs := s.externalWakeTimeoutSecs
+	logger.Debug("启动外部唤醒超时定时器，等待 %d 秒后重置临时唤醒状态", externalWakeTimeoutSecs)
+	time.AfterFunc(time.Duration(externalWakeTimeoutSecs)*time.Second, func() {
+		// 重置临时唤醒状态
+		if atomic.LoadInt32(&s.isTemporaryWake) == 1 {
+			logger.Debug("外部唤醒超时，重置临时唤醒状态")
+			atomic.StoreInt32(&s.isTemporaryWake, 0)
+			// 释放唤醒锁，允许系统睡眠
+			s.lock.Release()
 
-	if s.sleepMode == SleepModeProgram {
-		logger.Debug("程序控制模式，等待 %d 秒后重置临时唤醒状态", wolTimeoutSecs)
-		time.AfterFunc(time.Duration(wolTimeoutSecs)*time.Second, func() {
-			// 重置临时唤醒状态，让检查器可以启动睡眠定时器
-			if atomic.LoadInt32(&s.isTemporaryWake) == 1 {
-				logger.Debug("WOL 超时，重置临时唤醒状态")
-				atomic.StoreInt32(&s.isTemporaryWake, 0)
+			// 如果是程序控制模式，检查定时器会自动启动睡眠定时器
+			if s.sleepMode == SleepModeProgram {
+				logger.Debug("程序控制模式，检查定时器将在下次检查时启动睡眠定时器")
 			}
-		})
-	} else {
-		logger.Debug("系统控制模式，不启动睡眠定时器")
-	}
+		}
+	})
 
 	if s.updateCallback != nil {
 		logger.Debug("触发状态更新回调")
@@ -202,10 +220,13 @@ func (s *Service) cancelSleepTimer() {
 func (s *Service) Stop() {
 	close(s.done)
 	s.cancelSleepTimer()
+	// 停止服务时释放唤醒锁
+	s.lock.Release()
 }
 
 // forceSystemSleep 强制系统进入睡眠状态
 func (s *Service) forceSystemSleep() error {
+	logger.Info("强制系统睡眠")
 	// 释放唤醒锁
 	s.lock.Release()
 	// 强制系统睡眠
@@ -219,16 +240,44 @@ func (s *Service) GetStrategy() Strategy {
 
 // SetStrategy 设置策略
 func (s *Service) SetStrategy(strategy Strategy, duration time.Duration) {
+	// 如果切换到永久唤醒或计时唤醒，取消睡眠定时器
+	if strategy == StrategyPermanent || strategy == StrategyTimed {
+		s.cancelSleepTimer()
+	}
+
 	s.strategy = strategy
 	if strategy == StrategyTimed {
 		s.remainingTime = int(duration.Seconds())
 		s.duration = duration
+		// 获取唤醒锁，阻止系统睡眠
+		s.lock.Acquire()
+		// 启动定时器，到期后释放唤醒锁并启动睡眠定时器
+		time.AfterFunc(duration, func() {
+			s.lock.Release()
+			// 如果是程序控制模式，启动睡眠定时器
+			if s.sleepMode == SleepModeProgram {
+				s.startSleepTimer()
+			}
+		})
+	} else if strategy == StrategyPermanent {
+		// 永久唤醒模式下获取唤醒锁
+		s.lock.Acquire()
+	} else {
+		// 其他模式下释放唤醒锁
+		s.lock.Release()
 	}
+
 	if s.updateCallback != nil {
 		s.updateCallback()
 	}
 	if s.strategyChangeCallback != nil {
 		s.strategyChangeCallback(s.strategy)
+	}
+	// 保存配置
+	if s.saveConfigCallback != nil {
+		if err := s.saveConfigCallback(); err != nil {
+			logger.Error("保存配置失败: %v", err)
+		}
 	}
 }
 
@@ -276,9 +325,32 @@ func (s *Service) SetDuration(duration time.Duration) {
 
 // SetSleepMode 设置睡眠模式
 func (s *Service) SetSleepMode(mode SleepMode) {
+	if s.sleepMode == mode {
+		return
+	}
+
 	s.sleepMode = mode
+
+	// 如果切换到系统控制模式，取消已有的睡眠定时器和检查定时器
+	if mode == SleepModeSystem {
+		logger.Debug("切换到系统控制模式，取消睡眠定时器和检查定时器")
+		s.cancelSleepTimer()
+		close(s.done)
+		s.done = make(chan struct{}) // 重新创建 done channel 以备后用
+	} else {
+		// 如果切换到程序控制模式，启动检查定时器
+		logger.Debug("切换到程序控制模式，启动检查定时器")
+		go s.runCheckTimer()
+	}
+
 	if s.updateCallback != nil {
 		s.updateCallback()
+	}
+	// 保存配置
+	if s.saveConfigCallback != nil {
+		if err := s.saveConfigCallback(); err != nil {
+			logger.Error("保存配置失败: %v", err)
+		}
 	}
 }
 
@@ -295,11 +367,23 @@ func (s *Service) InitializeState(strategy Strategy, sleepMode SleepMode, durati
 	s.strategy = strategy
 	s.sleepMode = sleepMode
 	atomic.StoreInt32(&s.isTemporaryWake, 0)
-	s.programSleepDelay = 60 // 默认60秒
 	s.duration = duration
 
 	// 取消所有定时器
 	s.cancelSleepTimer()
+
+	// 根据策略设置唤醒锁状态
+	if strategy == StrategyPermanent || strategy == StrategyTimed {
+		s.lock.Acquire()
+		if strategy == StrategyTimed {
+			// 启动定时器，到期后释放唤醒锁
+			time.AfterFunc(duration, func() {
+				s.lock.Release()
+			})
+		}
+	} else {
+		s.lock.Release()
+	}
 
 	// 触发回调
 	if s.updateCallback != nil {
@@ -321,6 +405,10 @@ func (s *Service) SetStrategyChangeCallback(callback func(Strategy, SleepMode, t
 
 // SetProgramSleepDelay 设置程序控制睡眠模式下的等待睡眠时间（秒）
 func (s *Service) SetProgramSleepDelay(delay int) {
+	if delay < 30 {
+		logger.Info("程序控制睡眠模式下等待睡眠时间(%d秒)小于最小值，设置为30秒", delay)
+		delay = 30
+	}
 	s.programSleepDelay = delay
 	if s.updateCallback != nil {
 		s.updateCallback()
@@ -332,17 +420,21 @@ func (s *Service) GetProgramSleepDelay() int {
 	return s.programSleepDelay
 }
 
-// SetWolTimeoutSecs 设置 WOL 唤醒超时时间（秒）
-func (s *Service) SetWolTimeoutSecs(timeout int) {
-	s.wolTimeoutSecs = timeout
+// SetTimeoutSecs 设置外部唤醒超时时间（秒）
+func (s *Service) SetTimeoutSecs(timeout int) {
+	if timeout < 30 {
+		logger.Info("外部唤醒超时时间(%d秒)小于最小值，设置为30秒", timeout)
+		timeout = 30
+	}
+	s.externalWakeTimeoutSecs = timeout
 	if s.updateCallback != nil {
 		s.updateCallback()
 	}
 }
 
-// GetWolTimeoutSecs 获取 WOL 唤醒超时时间（秒）
-func (s *Service) GetWolTimeoutSecs() int {
-	return s.wolTimeoutSecs
+// GetTimeoutSecs 获取外部唤醒超时时间（秒）
+func (s *Service) GetTimeoutSecs() int {
+	return s.externalWakeTimeoutSecs
 }
 
 // SetValidEvents 设置有效的唤醒事件类型
@@ -351,9 +443,20 @@ func (s *Service) SetValidEvents(events []string) {
 	if s.updateCallback != nil {
 		s.updateCallback()
 	}
+	// 保存配置
+	if s.saveConfigCallback != nil {
+		if err := s.saveConfigCallback(); err != nil {
+			logger.Error("保存配置失败: %v", err)
+		}
+	}
 }
 
 // GetValidEvents 获取有效的唤醒事件类型
 func (s *Service) GetValidEvents() []string {
 	return s.validEvents
+}
+
+// SetSaveConfigCallback 设置配置保存回调函数
+func (s *Service) SetSaveConfigCallback(callback func() error) {
+	s.saveConfigCallback = callback
 }

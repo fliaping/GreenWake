@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"os"
 	"os/signal"
 	"sync"
@@ -19,13 +20,6 @@ import (
 )
 
 func main() {
-	// 初始化日志
-	if err := logger.Init(); err != nil {
-		logger.Error("初始化日志失败: %v", err)
-		os.Exit(1)
-	}
-	defer logger.Close()
-
 	// 解析命令行参数
 	configFile := flag.String("config", "", "配置文件路径")
 	flag.Parse()
@@ -39,9 +33,16 @@ func main() {
 	// 加载配置
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		logger.Error("加载配置失败: %v", err)
+		fmt.Printf("加载配置失败: %v\n", err)
 		os.Exit(1)
 	}
+
+	// 初始化日志
+	if err := logger.Init(cfg.LogLevel); err != nil {
+		fmt.Printf("初始化日志失败: %v\n", err)
+		os.Exit(1)
+	}
+	defer logger.Close()
 
 	// 检查是否已有实例在运行
 	lock := singleinstance.New("awake")
@@ -63,23 +64,23 @@ func main() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	// 创建唤醒锁服务
-	wakeLockSvc := wakelock.NewService(wakelock.NewLock())
+	wakeLockSvc := wakelock.NewService(wakelock.NewLock(), cfg)
 
 	// 设置程序控制睡眠模式下等待睡眠时间
 	wakeLockSvc.SetProgramSleepDelay(cfg.ProgramSleepDelay)
-	// 设置 WOL 超时时间
-	wakeLockSvc.SetWolTimeoutSecs(cfg.WolWake.WolTimeoutSecs)
+	// 设置外部唤醒超时时间
+	wakeLockSvc.SetTimeoutSecs(cfg.ExternalWake.TimeoutSecs)
 	// 设置有效的唤醒事件类型
-	wakeLockSvc.SetValidEvents(cfg.WolWake.GetValidEvents())
+	wakeLockSvc.SetValidEvents(cfg.ExternalWake.GetValidEvents())
 
 	// 创建托盘服务
 	traySvc := tray.NewTrayService(wakeLockSvc)
 
-	// 设置配置（这会同时设置初始策略和睡眠模式）
+	// 设置配置
 	traySvc.SetConfig(cfg, configPath)
 
 	// 创建唤醒包服务并在后台启动
-	wakePacketSvc := wakepacket.NewService(cfg.WolWake.WolPort, time.Duration(cfg.WolWake.WolTimeoutSecs)*time.Second, wakeLockSvc)
+	wakePacketSvc := wakepacket.NewService(cfg.ExternalWake.WolPort, time.Duration(cfg.ExternalWake.TimeoutSecs)*time.Second, wakeLockSvc)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -111,22 +112,18 @@ func main() {
 		cancel() // 触发所有服务退出
 	}()
 
-	// 启动托盘服务
+	// 启动托盘服务（在主线程上运行）
 	go func() {
-		traySvc.Start()
-		cancel() // 如果托盘服务退出，触发其他服务退出
+		<-ctx.Done()
+		// 在主线程上停止托盘服务
+		traySvc.Stop()
+		logger.Info("托盘服务已停止")
 	}()
 
-	// 等待上下文取消
-	<-ctx.Done()
-	logger.Info("开始关闭服务...")
+	// 在主线程上运行托盘服务
+	traySvc.Start()
 
-	// 按顺序关闭服务
-	traySvc.Stop()
-	deviceMonitor.Stop()
-	wakePacketSvc.Stop()
-
-	// 等待所有 goroutine 完成
+	// 等待其他服务完成
 	logger.Info("等待服务完全停止...")
 	wg.Wait()
 	logger.Info("所有服务已停止，程序退出")
