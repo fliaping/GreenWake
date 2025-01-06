@@ -4,9 +4,9 @@
 package wakeevent
 
 import (
-	"atomic"
 	"greenwake-guard/config"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 	"unsafe"
@@ -32,8 +32,8 @@ type windowsDeviceMonitor struct {
 	config  *config.Config
 	done    chan struct{}
 	// 添加监控状态标志
-	monitoringKeyboard atomic.Bool
-	monitoringMouse    atomic.Bool
+	monitoringKeyboard atomic.Int32
+	monitoringMouse    atomic.Int32
 	mu                 sync.Mutex
 }
 
@@ -62,22 +62,22 @@ func (m *windowsDeviceMonitor) UpdateConfig(config *Config) {
 
 	// 处理键盘监控
 	if config.IsEventTypeValid(string(EventTypeDevice)) {
-		if !m.monitoringKeyboard.Load() {
-			m.monitoringKeyboard.Store(true)
+		if m.monitoringKeyboard.Load() == 0 {
+			m.monitoringKeyboard.Store(1)
 			go m.startKeyboardHook()
 		}
 	} else {
-		m.monitoringKeyboard.Store(false)
+		m.monitoringKeyboard.Store(0)
 	}
 
 	// 处理鼠标监控
 	if config.IsEventTypeValid(string(EventTypeDevice)) {
-		if !m.monitoringMouse.Load() {
-			m.monitoringMouse.Store(true)
+		if m.monitoringMouse.Load() == 0 {
+			m.monitoringMouse.Store(1)
 			go m.startMouseHook()
 		}
 	} else {
-		m.monitoringMouse.Store(false)
+		m.monitoringMouse.Store(0)
 	}
 }
 
@@ -105,7 +105,7 @@ func (m *windowsDeviceMonitor) startKeyboardHook() {
 		Point  struct{ X, Y int32 }
 	}
 
-	for m.monitoringKeyboard.Load() {
+	for m.monitoringKeyboard.Load() == 1 {
 		select {
 		case <-m.done:
 			return
@@ -139,7 +139,7 @@ func (m *windowsDeviceMonitor) startMouseHook() {
 		Point  struct{ X, Y int32 }
 	}
 
-	for m.monitoringMouse.Load() {
+	for m.monitoringMouse.Load() == 1 {
 		select {
 		case <-m.done:
 			return

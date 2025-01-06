@@ -35,6 +35,14 @@ mkdir -p "$INSTALLER_DIR" || { echo "创建安装程序目录失败"; exit 1; }
 
 # 安装依赖
 echo "安装依赖..."
+
+# 添加 ARM64 架构支持
+if [ "$ARCH" = "arm64" ]; then
+    echo "添加 ARM64 架构支持..."
+    sudo dpkg --add-architecture arm64 || { echo "添加 ARM64 架构支持失败"; exit 1; }
+fi
+
+# 更新软件源
 sudo apt-get update || { echo "更新包列表失败"; exit 1; }
 
 # 安装基础依赖
@@ -68,12 +76,6 @@ else
         libxinerama-dev \
         libxi-dev \
         libxxf86vm-dev || { echo "安装 AMD64 开发库失败"; exit 1; }
-fi
-
-# 添加 ARM64 架构支持
-if [ "$ARCH" = "arm64" ]; then
-    sudo dpkg --add-architecture arm64 || { echo "添加 ARM64 架构支持失败"; exit 1; }
-    sudo apt-get update || { echo "更新包列表失败"; exit 1; }
 fi
 
 # 编译应用
