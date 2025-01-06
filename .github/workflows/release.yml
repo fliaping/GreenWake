@@ -1,4 +1,4 @@
-name: Greenwake Guard ${{ env.VERSION }}
+name: Greenwake Guard Release
 
 on:
   push:
