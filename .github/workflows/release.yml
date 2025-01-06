@@ -87,6 +87,7 @@ jobs:
       - name: Build Windows App
         env:
           GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: 0
         run: |
           cd greenwake-guard
           powershell -ExecutionPolicy Bypass -File script/windows/build.ps1
@@ -104,6 +105,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      
+      - name: Set up QEMU
+        if: matrix.arch == 'arm64'
+        uses: docker/setup-qemu-action@v3
       
       - name: Set up Go
         uses: actions/setup-go@v4
@@ -125,18 +130,35 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ matrix.arch }}-go-
 
-      - name: Set up QEMU
-        if: matrix.arch == 'arm64'
-        uses: docker/setup-qemu-action@v2
-
       - name: Install dependencies
         run: |
+          sudo dpkg --add-architecture arm64
           sudo apt-get update
-          sudo apt-get install -y build-essential rpm dpkg-dev gcc-aarch64-linux-gnu
+          sudo apt-get install -y build-essential rpm dpkg-dev pkg-config gcc-aarch64-linux-gnu
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            sudo apt-get install -y \
+              libgl1-mesa-dev:arm64 \
+              libx11-dev:arm64 \
+              libxcursor-dev:arm64 \
+              libxrandr-dev:arm64 \
+              libxinerama-dev:arm64 \
+              libxi-dev:arm64 \
+              libxxf86vm-dev:arm64
+          else
+            sudo apt-get install -y \
+              libgl1-mesa-dev \
+              libx11-dev \
+              libxcursor-dev \
+              libxrandr-dev \
+              libxinerama-dev \
+              libxi-dev \
+              libxxf86vm-dev
+          fi
 
       - name: Build Linux App
         env:
           GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: 1
           CC: ${{ matrix.arch == 'arm64' && 'aarch64-linux-gnu-gcc' || 'gcc' }}
         run: |
           cd greenwake-guard

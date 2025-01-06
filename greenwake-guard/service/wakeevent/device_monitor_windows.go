@@ -15,10 +15,11 @@ import (
 )
 
 var (
-	user32               = syscall.NewLazyDLL("user32.dll")
-	procSetWindowsHookEx = user32.NewProc("SetWindowsHookExW")
-	procGetMessage       = user32.NewProc("GetMessageW")
-	procCallNextHookEx   = user32.NewProc("CallNextHookEx")
+	user32                  = syscall.NewLazyDLL("user32.dll")
+	procSetWindowsHookEx    = user32.NewProc("SetWindowsHookExW")
+	procGetMessage          = user32.NewProc("GetMessageW")
+	procCallNextHookEx      = user32.NewProc("CallNextHookEx")
+	procUnhookWindowsHookEx = user32.NewProc("UnhookWindowsHookEx")
 )
 
 const (
@@ -54,14 +55,14 @@ func (m *windowsDeviceMonitor) Start() error {
 	return nil
 }
 
-func (m *windowsDeviceMonitor) UpdateConfig(config *Config) {
+func (m *windowsDeviceMonitor) UpdateConfig(cfg *config.Config) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.config = config
+	m.config = cfg
 
 	// 处理键盘监控
-	if config.IsEventTypeValid(string(EventTypeDevice)) {
+	if cfg.IsEventTypeValid(string(EventTypeDevice)) {
 		if m.monitoringKeyboard.Load() == 0 {
 			m.monitoringKeyboard.Store(1)
 			go m.startKeyboardHook()
@@ -71,7 +72,7 @@ func (m *windowsDeviceMonitor) UpdateConfig(config *Config) {
 	}
 
 	// 处理鼠标监控
-	if config.IsEventTypeValid(string(EventTypeDevice)) {
+	if cfg.IsEventTypeValid(string(EventTypeDevice)) {
 		if m.monitoringMouse.Load() == 0 {
 			m.monitoringMouse.Store(1)
 			go m.startMouseHook()
@@ -94,7 +95,7 @@ func (m *windowsDeviceMonitor) startKeyboardHook() {
 		logger.Error("设置键盘钩子失败: %v", err)
 		return
 	}
-	defer syscall.UnhookWindowsHookEx(hook)
+	defer unhookWindowsHookEx(hook)
 
 	var msg struct {
 		HWND   uintptr
@@ -128,7 +129,7 @@ func (m *windowsDeviceMonitor) startMouseHook() {
 		logger.Error("设置鼠标钩子失败: %v", err)
 		return
 	}
-	defer syscall.UnhookWindowsHookEx(hook)
+	defer unhookWindowsHookEx(hook)
 
 	var msg struct {
 		HWND   uintptr
@@ -168,6 +169,14 @@ func setWindowsHookEx(hookType int, callback func(int, uintptr, uintptr) uintptr
 		return 0, err
 	}
 	return syscall.Handle(handle), nil
+}
+
+func unhookWindowsHookEx(hook syscall.Handle) error {
+	ret, _, err := procUnhookWindowsHookEx.Call(uintptr(hook))
+	if ret == 0 {
+		return err
+	}
+	return nil
 }
 
 func callNextHookEx(hhk syscall.Handle, code int, wparam, lparam uintptr) uintptr {
