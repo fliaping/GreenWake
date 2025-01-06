@@ -1,0 +1,56 @@
+version: '3'
+
+vars:
+  BINARY_NAME: greenwake-guard
+  BUILD_DIR: build
+
+tasks:
+  default:
+    cmds:
+      - task: build
+
+  install-deps:
+    desc: Install dependencies
+    cmds:
+      - go mod download
+      - go mod tidy
+
+  build:
+    desc: Build the application
+    deps: [install-deps]
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}
+      - go build -o {{.BUILD_DIR}}/{{.BINARY_NAME}} ./cmd/greenwake-guard
+
+  build-all:
+    desc: Build for all platforms
+    deps: [install-deps]
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}
+      # Windows
+      - GOOS=windows GOARCH=amd64 go build -o {{.BUILD_DIR}}/{{.BINARY_NAME}}_windows_amd64.exe ./cmd/greenwake-guard
+      # macOS
+      - GOOS=darwin GOARCH=amd64 go build -o {{.BUILD_DIR}}/{{.BINARY_NAME}}_darwin_amd64 ./cmd/greenwake-guard
+      - GOOS=darwin GOARCH=arm64 go build -o {{.BUILD_DIR}}/{{.BINARY_NAME}}_darwin_arm64 ./cmd/greenwake-guard
+      # Linux
+      - GOOS=linux GOARCH=amd64 go build -o {{.BUILD_DIR}}/{{.BINARY_NAME}}_linux_amd64 ./cmd/greenwake-guard
+
+  run:
+    desc: Run the application
+    cmds:
+      - go run ./cmd/greenwake-guard
+
+  test:
+    desc: Run tests
+    cmds:
+      - go test -v ./...
+
+  clean:
+    desc: Clean build directory
+    cmds:
+      - rm -rf {{.BUILD_DIR}}
+
+  dev:
+    desc: Run with hot reload
+    cmds:
+      - air 

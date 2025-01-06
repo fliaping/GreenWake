@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Greenwake Guard
+Comment=Prevent system from sleeping
+Exec=greenwake-guard
+Icon=greenwake-guard
+Terminal=false
+Categories=Utility;
+StartupNotify=false 

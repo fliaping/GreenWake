@@ -1,4 +1,4 @@
-name: Release Build
+name: Greenwake Guard ${{ env.VERSION }}
 
 on:
   push:
@@ -45,7 +45,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: macos-universal
-          path: build/macos/Awake.dmg
+          path: build/macos/GreenwakeGuard.dmg
           
   build-windows:
     strategy:
@@ -91,7 +91,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: windows-${{ matrix.arch }}
-          path: build/windows/Awake_Setup_*.exe
+          path: build/windows/GreenwakeGuard_Setup_*.exe
           
   build-linux:
     strategy:
@@ -141,19 +141,19 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: linux-deb-${{ matrix.arch }}
-          path: build/linux/awake_*_${{ matrix.arch }}.deb
+          path: build/linux/greenwake-guard_*_${{ matrix.arch }}.deb
 
       - name: Upload RPM Package
         uses: actions/upload-artifact@v3
         with:
           name: linux-rpm-${{ matrix.arch }}
-          path: build/linux/awake-*.${{ matrix.arch }}.rpm
+          path: build/linux/greenwake-guard-*.${{ matrix.arch }}.rpm
 
       - name: Upload Shell Installer
         uses: actions/upload-artifact@v3
         with:
           name: linux-shell-${{ matrix.arch }}
-          path: build/linux/Awake_*_${{ matrix.arch }}.sh
+          path: build/linux/GreenwakeGuard_*_${{ matrix.arch }}.sh
           
   create-release:
     needs: [build-macos, build-windows, build-linux]
@@ -183,18 +183,18 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          name: Awake ${{ env.VERSION }}
+          name: Greenwake Guard ${{ env.VERSION }}
           body_path: CHANGELOG.md
           files: |
-            macos-universal/Awake.dmg
-            windows-amd64/Awake_Setup_*.exe
-            windows-arm64/Awake_Setup_*.exe
-            linux-deb-amd64/awake_*.deb
-            linux-deb-arm64/awake_*.deb
-            linux-rpm-amd64/awake-*.rpm
-            linux-rpm-arm64/awake-*.rpm
-            linux-shell-amd64/Awake_*.sh
-            linux-shell-arm64/Awake_*.sh
+            macos-universal/GreenwakeGuard.dmg
+            windows-amd64/GreenwakeGuard_Setup_*.exe
+            windows-arm64/GreenwakeGuard_Setup_*.exe
+            linux-deb-amd64/greenwake-guard_*.deb
+            linux-deb-arm64/greenwake-guard_*.deb
+            linux-rpm-amd64/greenwake-guard-*.rpm
+            linux-rpm-arm64/greenwake-guard-*.rpm
+            linux-shell-amd64/GreenwakeGuard_*.sh
+            linux-shell-arm64/GreenwakeGuard_*.sh
           draft: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
