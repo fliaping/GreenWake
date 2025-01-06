@@ -28,7 +28,7 @@ mkdir -p "$INSTALLER_DIR"
 # 编译应用
 echo "编译应用..."
 cd "$PROJECT_ROOT"
-CGO_ENABLED=1 GOARCH=$ARCH go build -ldflags "-s -w -X main.Version=$VERSION" -o "$DIST_DIR/usr/bin/$APP_NAME" cmd/greenwake-guard/main.go
+CGO_ENABLED=1 GOARCH=$ARCH go build -ldflags "-s -w -X main.Version=$VERSION" -o "$DIST_DIR/usr/bin/$APP_NAME" ./cmd/guard
 
 # 复制资源文件
 echo "复制资源文件..."
@@ -162,9 +162,15 @@ EOF
 TEMP_DIR=$(mktemp -d)
 mkdir -p "$TEMP_DIR/bin"
 mkdir -p "$TEMP_DIR/share/greenwake-guard/assets"
+mkdir -p "$TEMP_DIR/share/icons/hicolor/256x256/apps"
+
 cp "$DIST_DIR/usr/bin/$APP_NAME" "$TEMP_DIR/bin/"
-cp -r "$DIST_DIR/usr/share/$APP_NAME/assets"/* "$TEMP_DIR/share/greenwake-guard/assets/"
-cp "$DIST_DIR/usr/share/icons/hicolor/256x256/apps/$APP_NAME.png" "$TEMP_DIR/share/icons/hicolor/256x256/apps/"
+if [ -d "$DIST_DIR/usr/share/$APP_NAME/assets" ]; then
+    cp -r "$DIST_DIR/usr/share/$APP_NAME/assets"/* "$TEMP_DIR/share/greenwake-guard/assets/"
+fi
+if [ -f "$DIST_DIR/usr/share/icons/hicolor/256x256/apps/$APP_NAME.png" ]; then
+    cp "$DIST_DIR/usr/share/icons/hicolor/256x256/apps/$APP_NAME.png" "$TEMP_DIR/share/icons/hicolor/256x256/apps/"
+fi
 
 # 创建tar包并附加到脚本
 cd "$TEMP_DIR"

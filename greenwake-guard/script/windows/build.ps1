@@ -25,7 +25,7 @@ Write-Host "编译应用..."
 Push-Location $PROJECT_ROOT
 $env:CGO_ENABLED = "1"
 $env:GOOS = "windows"
-go build -ldflags "-s -w -H=windowsgui -X main.Version=$VERSION" -o "$DIST_DIR\greenwake-guard.exe" cmd/greenwake-guard/main.go
+go build -ldflags "-s -w -H=windowsgui -X main.Version=$VERSION" -o "$DIST_DIR\greenwake-guard.exe" ./cmd/guard
 Pop-Location
 
 # 复制资源文件
@@ -44,9 +44,9 @@ if (Test-Path (Join-Path $PROJECT_ROOT "assets")) {
 }
 
 # 创建 Inno Setup 脚本
-$SETUP_SCRIPT = @"
-#define MyAppName "$APP_NAME"
-#define MyAppVersion "$VERSION"
+$SETUP_SCRIPT = @'
+#define MyAppName "Greenwake Guard"
+#define MyAppVersion "{0}"
 #define MyAppPublisher "Fliaping"
 #define MyAppURL "https://github.com/fliaping/GreenWake"
 #define MyAppExeName "greenwake-guard.exe"
@@ -62,13 +62,13 @@ AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
-OutputDir=$BUILD_DIR
-OutputBaseFilename=GreenwakeGuard_Setup_{#MyAppVersion}_$ARCH
+OutputDir={1}
+OutputBaseFilename=GreenwakeGuard_Setup_{#MyAppVersion}_{2}
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
-ArchitecturesAllowed=$ARCH
-ArchitecturesInstallIn64BitMode=$ARCH
+ArchitecturesAllowed={2}
+ArchitecturesInstallIn64BitMode={2}
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -79,8 +79,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Name: "autostart"; Description: "开机自动启动"; GroupDescription: "其他选项:"; Flags: unchecked
 
 [Files]
-Source: "$DIST_DIR\greenwake-guard.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "$DIST_DIR\assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{3}\greenwake-guard.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{3}\assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -91,7 +91,10 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
-"@
+'@
+
+# 格式化 Inno Setup 脚本
+$SETUP_SCRIPT = $SETUP_SCRIPT -f $VERSION, $BUILD_DIR, $ARCH, $DIST_DIR
 
 # 保存 Inno Setup 脚本
 $SETUP_SCRIPT | Out-File -Encoding UTF8 (Join-Path $BUILD_DIR "setup.iss")
