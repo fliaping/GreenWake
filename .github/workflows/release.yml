@@ -44,7 +44,7 @@ jobs:
           ./script/macos/build.sh
           
       - name: Upload macOS Artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: macos-universal
           path: greenwake-guard/build/macos/GreenwakeGuard.dmg
@@ -92,7 +92,7 @@ jobs:
           powershell -ExecutionPolicy Bypass -File script/windows/build.ps1
           
       - name: Upload Windows Artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: windows-${{ matrix.arch }}
           path: greenwake-guard/build/windows/GreenwakeGuard_Setup_*.exe
@@ -144,19 +144,19 @@ jobs:
           ./script/linux/build.sh
 
       - name: Upload DEB Package
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: linux-deb-${{ matrix.arch }}
           path: greenwake-guard/build/linux/greenwake-guard_*_${{ matrix.arch }}.deb
 
       - name: Upload RPM Package
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: linux-rpm-${{ matrix.arch }}
           path: greenwake-guard/build/linux/greenwake-guard-*.${{ matrix.arch }}.rpm
 
       - name: Upload Shell Installer
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: linux-shell-${{ matrix.arch }}
           path: greenwake-guard/build/linux/GreenwakeGuard_*_${{ matrix.arch }}.sh
@@ -184,23 +184,30 @@ jobs:
           fi
           
       - name: Download Artifacts
-        uses: actions/download-artifact@v3
-        
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+          pattern: |
+            macos-universal
+            windows-*
+            linux-*
+          
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           name: Greenwake Guard ${{ env.VERSION }}
           body_path: CHANGELOG.md
           files: |
-            macos-universal/GreenwakeGuard.dmg
-            windows-amd64/GreenwakeGuard_Setup_*.exe
-            windows-arm64/GreenwakeGuard_Setup_*.exe
-            linux-deb-amd64/greenwake-guard_*.deb
-            linux-deb-arm64/greenwake-guard_*.deb
-            linux-rpm-amd64/greenwake-guard-*.rpm
-            linux-rpm-arm64/greenwake-guard-*.rpm
-            linux-shell-amd64/GreenwakeGuard_*.sh
-            linux-shell-arm64/GreenwakeGuard_*.sh
+            artifacts/macos-universal/GreenwakeGuard.dmg
+            artifacts/windows-amd64/GreenwakeGuard_Setup_*.exe
+            artifacts/windows-arm64/GreenwakeGuard_Setup_*.exe
+            artifacts/linux-deb-amd64/greenwake-guard_*.deb
+            artifacts/linux-deb-arm64/greenwake-guard_*.deb
+            artifacts/linux-rpm-amd64/greenwake-guard-*.rpm
+            artifacts/linux-rpm-arm64/greenwake-guard-*.rpm
+            artifacts/linux-shell-amd64/GreenwakeGuard_*.sh
+            artifacts/linux-shell-arm64/GreenwakeGuard_*.sh
           draft: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 

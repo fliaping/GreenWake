@@ -1,5 +1,12 @@
 #!/bin/bash
 
+# 设置错误时立即退出
+set -e
+# 管道命令中的错误也会导致脚本退出
+set -o pipefail
+# 使用未定义的变量会报错
+set -u
+
 # 获取脚本所在目录的绝对路径
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 # 获取项目根目录
@@ -19,30 +26,57 @@ INSTALLER_DIR="$BUILD_DIR/installer"
 rm -rf "$BUILD_DIR"
 
 # 创建目录结构
-mkdir -p "$DIST_DIR/usr/bin"
-mkdir -p "$DIST_DIR/usr/share/$APP_NAME/assets"
-mkdir -p "$DIST_DIR/usr/share/applications"
-mkdir -p "$DIST_DIR/usr/share/icons/hicolor/256x256/apps"
-mkdir -p "$INSTALLER_DIR"
+echo "创建目录结构..."
+mkdir -p "$DIST_DIR/usr/bin" || { echo "创建 bin 目录失败"; exit 1; }
+mkdir -p "$DIST_DIR/usr/share/$APP_NAME/assets" || { echo "创建资源目录失败"; exit 1; }
+mkdir -p "$DIST_DIR/usr/share/applications" || { echo "创建应用程序目录失败"; exit 1; }
+mkdir -p "$DIST_DIR/usr/share/icons/hicolor/256x256/apps" || { echo "创建图标目录失败"; exit 1; }
+mkdir -p "$INSTALLER_DIR" || { echo "创建安装程序目录失败"; exit 1; }
+
+# 安装依赖
+echo "安装依赖..."
+sudo apt-get update || { echo "更新包列表失败"; exit 1; }
+sudo apt-get install -y \
+    build-essential \
+    rpm \
+    dpkg-dev \
+    gcc-aarch64-linux-gnu \
+    libgl1-mesa-dev \
+    xorg-dev \
+    pkg-config \
+    libx11-dev \
+    libxcursor-dev \
+    libxrandr-dev \
+    libxinerama-dev \
+    libxi-dev \
+    libxxf86vm-dev || { echo "安装依赖失败"; exit 1; }
 
 # 编译应用
 echo "编译应用..."
-cd "$PROJECT_ROOT"
-CGO_ENABLED=1 GOARCH=$ARCH go build -ldflags "-s -w -X main.Version=$VERSION" -o "$DIST_DIR/usr/bin/$APP_NAME" ./cmd/guard
+cd "$PROJECT_ROOT" || { echo "切换到项目根目录失败"; exit 1; }
+CGO_ENABLED=1 GOARCH=$ARCH go build -ldflags "-s -w -X main.Version=$VERSION" -o "$DIST_DIR/usr/bin/$APP_NAME" ./cmd/guard || { echo "编译应用失败"; exit 1; }
+
+# 检查编译结果
+if [ ! -f "$DIST_DIR/usr/bin/$APP_NAME" ]; then
+    echo "编译后的二进制文件不存在"
+    exit 1
+fi
 
 # 复制资源文件
 echo "复制资源文件..."
 if [ -d "$PROJECT_ROOT/assets" ]; then
-    cp -r "$PROJECT_ROOT/assets/lang" "$DIST_DIR/usr/share/$APP_NAME/assets/"
-    cp -r "$PROJECT_ROOT/assets/icons" "$DIST_DIR/usr/share/$APP_NAME/assets/"
+    cp -r "$PROJECT_ROOT/assets/lang" "$DIST_DIR/usr/share/$APP_NAME/assets/" || { echo "复制语言文件失败"; exit 1; }
+    cp -r "$PROJECT_ROOT/assets/icons" "$DIST_DIR/usr/share/$APP_NAME/assets/" || { echo "复制图标文件失败"; exit 1; }
     # 复制应用图标
-    cp "$PROJECT_ROOT/assets/icons/icon.png" "$DIST_DIR/usr/share/icons/hicolor/256x256/apps/$APP_NAME.png"
+    cp "$PROJECT_ROOT/assets/icons/icon.png" "$DIST_DIR/usr/share/icons/hicolor/256x256/apps/$APP_NAME.png" || { echo "复制应用图标失败"; exit 1; }
 else
-    echo "警告: 没有找到assets目录: $PROJECT_ROOT/assets"
+    echo "错误: 没有找到assets目录: $PROJECT_ROOT/assets"
+    exit 1
 fi
 
 # 创建 .desktop 文件
-cat > "$DIST_DIR/usr/share/applications/$APP_NAME.desktop" << EOF
+echo "创建 .desktop 文件..."
+cat > "$DIST_DIR/usr/share/applications/$APP_NAME.desktop" << EOF || { echo "创建 .desktop 文件失败"; exit 1; }
 [Desktop Entry]
 Name=Greenwake Guard
 Comment=Prevent system from sleeping
@@ -56,8 +90,8 @@ EOF
 
 # 创建 DEB 包
 echo "创建 DEB 包..."
-mkdir -p "$DEB_DIR/DEBIAN"
-cat > "$DEB_DIR/DEBIAN/control" << EOF
+mkdir -p "$DEB_DIR/DEBIAN" || { echo "创建 DEB 目录失败"; exit 1; }
+cat > "$DEB_DIR/DEBIAN/control" << EOF || { echo "创建 DEB 控制文件失败"; exit 1; }
 Package: greenwake-guard
 Version: $VERSION
 Section: utils
@@ -70,12 +104,12 @@ Description: Greenwake Guard - Prevent system from sleeping
 EOF
 
 # 复制文件到 DEB 目录
-cp -r "$DIST_DIR"/* "$DEB_DIR"
-dpkg-deb --build "$DEB_DIR" "$BUILD_DIR/${APP_NAME}_${VERSION}_${ARCH}.deb"
+cp -r "$DIST_DIR"/* "$DEB_DIR" || { echo "复制文件到 DEB 目录失败"; exit 1; }
+dpkg-deb --build "$DEB_DIR" "$BUILD_DIR/${APP_NAME}_${VERSION}_${ARCH}.deb" || { echo "构建 DEB 包失败"; exit 1; }
 
 # 创建 RPM 包
 echo "创建 RPM 包..."
-mkdir -p "$RPM_DIR/SPECS"
+mkdir -p "$RPM_DIR/SPECS" || { echo "创建 RPM 目录失败"; exit 1; }
 
 # 将 arm64 转换为 aarch64（RPM 使用的架构名称）
 RPM_ARCH=$ARCH
@@ -83,7 +117,7 @@ if [ "$ARCH" = "arm64" ]; then
     RPM_ARCH="aarch64"
 fi
 
-cat > "$RPM_DIR/SPECS/$APP_NAME.spec" << EOF
+cat > "$RPM_DIR/SPECS/$APP_NAME.spec" << EOF || { echo "创建 RPM spec 文件失败"; exit 1; }
 Name:           $APP_NAME
 Version:        $VERSION
 Release:        1%{?dist}
@@ -112,11 +146,11 @@ rpmbuild -bb --define "_topdir $RPM_DIR" \
          --define "_buildrootdir $BUILD_DIR/.build" \
          --define "_sourcedir $BUILD_DIR" \
          --buildroot="$DIST_DIR" \
-         "$RPM_DIR/SPECS/$APP_NAME.spec"
+         "$RPM_DIR/SPECS/$APP_NAME.spec" || { echo "构建 RPM 包失败"; exit 1; }
 
 # 创建自安装脚本
 echo "创建自安装脚本..."
-cat > "$INSTALLER_DIR/header.sh" << 'EOF'
+cat > "$INSTALLER_DIR/header.sh" << 'EOF' || { echo "创建安装脚本头部失败"; exit 1; }
 #!/bin/bash
 
 # 提取脚本所在目录
@@ -128,17 +162,17 @@ DESKTOP_DIR="$HOME/.local/share/applications"
 ICONS_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
 
 # 创建目录
-mkdir -p "$BIN_DIR"
-mkdir -p "$SHARE_DIR"
-mkdir -p "$DESKTOP_DIR"
-mkdir -p "$ICONS_DIR"
+mkdir -p "$BIN_DIR" || { echo "创建 bin 目录失败"; exit 1; }
+mkdir -p "$SHARE_DIR" || { echo "创建共享目录失败"; exit 1; }
+mkdir -p "$DESKTOP_DIR" || { echo "创建桌面文件目录失败"; exit 1; }
+mkdir -p "$ICONS_DIR" || { echo "创建图标目录失败"; exit 1; }
 
 # 解压二进制文件和资源
 ARCHIVE=`awk '/^__ARCHIVE_BELOW__/ {print NR + 1; exit 0; }' "$0"`
-tail -n+$ARCHIVE "$0" | tar xz -C "$INSTALL_DIR"
+tail -n+$ARCHIVE "$0" | tar xz -C "$INSTALL_DIR" || { echo "解压文件失败"; exit 1; }
 
 # 创建桌面文件
-cat > "$DESKTOP_DIR/greenwake-guard.desktop" << EOL
+cat > "$DESKTOP_DIR/greenwake-guard.desktop" << EOL || { echo "创建桌面文件失败"; exit 1; }
 [Desktop Entry]
 Name=Greenwake Guard
 Comment=Prevent system from sleeping
@@ -159,26 +193,27 @@ __ARCHIVE_BELOW__
 EOF
 
 # 创建临时目录并准备文件
-TEMP_DIR=$(mktemp -d)
-mkdir -p "$TEMP_DIR/bin"
-mkdir -p "$TEMP_DIR/share/greenwake-guard/assets"
-mkdir -p "$TEMP_DIR/share/icons/hicolor/256x256/apps"
+echo "准备安装文件..."
+TEMP_DIR=$(mktemp -d) || { echo "创建临时目录失败"; exit 1; }
+mkdir -p "$TEMP_DIR/bin" || { echo "创建临时 bin 目录失败"; exit 1; }
+mkdir -p "$TEMP_DIR/share/greenwake-guard/assets" || { echo "创建临时 assets 目录失败"; exit 1; }
+mkdir -p "$TEMP_DIR/share/icons/hicolor/256x256/apps" || { echo "创建临时图标目录失败"; exit 1; }
 
-cp "$DIST_DIR/usr/bin/$APP_NAME" "$TEMP_DIR/bin/"
+cp "$DIST_DIR/usr/bin/$APP_NAME" "$TEMP_DIR/bin/" || { echo "复制二进制文件失败"; exit 1; }
 if [ -d "$DIST_DIR/usr/share/$APP_NAME/assets" ]; then
-    cp -r "$DIST_DIR/usr/share/$APP_NAME/assets"/* "$TEMP_DIR/share/greenwake-guard/assets/"
+    cp -r "$DIST_DIR/usr/share/$APP_NAME/assets"/* "$TEMP_DIR/share/greenwake-guard/assets/" || { echo "复制资源文件失败"; exit 1; }
 fi
 if [ -f "$DIST_DIR/usr/share/icons/hicolor/256x256/apps/$APP_NAME.png" ]; then
-    cp "$DIST_DIR/usr/share/icons/hicolor/256x256/apps/$APP_NAME.png" "$TEMP_DIR/share/icons/hicolor/256x256/apps/"
+    cp "$DIST_DIR/usr/share/icons/hicolor/256x256/apps/$APP_NAME.png" "$TEMP_DIR/share/icons/hicolor/256x256/apps/" || { echo "复制图标文件失败"; exit 1; }
 fi
 
 # 创建tar包并附加到脚本
-cd "$TEMP_DIR"
-tar czf - * >> "$INSTALLER_DIR/header.sh"
+cd "$TEMP_DIR" || { echo "切换到临时目录失败"; exit 1; }
+tar czf - * >> "$INSTALLER_DIR/header.sh" || { echo "创建 tar 包失败"; exit 1; }
 
 # 生成最终的安装脚本
-mv "$INSTALLER_DIR/header.sh" "$BUILD_DIR/GreenwakeGuard_${VERSION}_${ARCH}.sh"
-chmod +x "$BUILD_DIR/GreenwakeGuard_${VERSION}_${ARCH}.sh"
+mv "$INSTALLER_DIR/header.sh" "$BUILD_DIR/GreenwakeGuard_${VERSION}_${ARCH}.sh" || { echo "移动安装脚本失败"; exit 1; }
+chmod +x "$BUILD_DIR/GreenwakeGuard_${VERSION}_${ARCH}.sh" || { echo "设置安装脚本权限失败"; exit 1; }
 
 # 清理临时目录
 rm -rf "$TEMP_DIR"
