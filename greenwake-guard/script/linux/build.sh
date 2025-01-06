@@ -42,9 +42,19 @@ export CGO_ENABLED=1
 export GOARCH=$ARCH
 if [ "$ARCH" = "arm64" ]; then
     export CC=aarch64-linux-gnu-gcc
+    export CXX=aarch64-linux-gnu-g++
+    export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
+    export CGO_CFLAGS="-I/usr/aarch64-linux-gnu/include"
+    export CGO_LDFLAGS="-L/usr/aarch64-linux-gnu/lib"
 fi
 
-go build -ldflags "-s -w -X main.Version=$VERSION" -o "$DIST_DIR/usr/bin/$APP_NAME" ./cmd/guard || { echo "编译应用失败"; exit 1; }
+# 添加编译选项
+BUILD_FLAGS="-ldflags '-s -w -X main.Version=$VERSION'"
+if [ "$ARCH" = "arm64" ]; then
+    BUILD_FLAGS="$BUILD_FLAGS -tags netgo"
+fi
+
+go build $BUILD_FLAGS -o "$DIST_DIR/usr/bin/$APP_NAME" ./cmd/guard || { echo "编译应用失败"; exit 1; }
 
 # 检查编译结果
 if [ ! -f "$DIST_DIR/usr/bin/$APP_NAME" ]; then

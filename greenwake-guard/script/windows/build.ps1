@@ -33,11 +33,17 @@ try {
 Write-Host "Building application..."
 try {
     Push-Location $PROJECT_ROOT
-    $env:CGO_ENABLED = "1"
+    $env:CGO_ENABLED = "0"
     $env:GOOS = "windows"
     
+    # Build flags for different architectures
+    $buildFlags = "-ldflags `"-s -w -H=windowsgui -X main.Version=$VERSION`""
+    if ($ARCH -eq "arm64") {
+        $buildFlags = "$buildFlags -tags `"no_cgo fyne_no_glfw`""
+    }
+    
     # Use Start-Process to capture go build errors
-    $buildProcess = Start-Process -FilePath "go" -ArgumentList "build", "-ldflags", "`"-s -w -H=windowsgui -X main.Version=$VERSION`"", "-o", "$DIST_DIR\greenwake-guard.exe", ".\cmd\guard" -Wait -NoNewWindow -PassThru
+    $buildProcess = Start-Process -FilePath "go" -ArgumentList ("build", $buildFlags -split ' ' + "-o", "$DIST_DIR\greenwake-guard.exe", ".\cmd\guard") -Wait -NoNewWindow -PassThru
     if ($buildProcess.ExitCode -ne 0) {
         throw "Failed to build application"
     }
@@ -92,8 +98,8 @@ OutputBaseFilename=GreenwakeGuard_Setup_{#MyAppVersion}_$ARCH
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
-ArchitecturesAllowed=$ARCH
-ArchitecturesInstallIn64BitMode=$ARCH
+ArchitecturesAllowed=$($ARCH -eq "arm64" ? "arm64" : "x64")
+ArchitecturesInstallIn64BitMode=$($ARCH -eq "arm64" ? "arm64" : "x64")
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

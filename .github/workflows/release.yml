@@ -52,7 +52,7 @@ jobs:
   build-windows:
     strategy:
       matrix:
-        arch: [amd64, arm64]
+        arch: [amd64]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v3
@@ -88,9 +88,14 @@ jobs:
         env:
           GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: 0
+          GOOS: windows
+          GO111MODULE: on
         run: |
           cd greenwake-guard
+          mkdir -p build/windows
+          go build -ldflags "-s -w -H=windowsgui -X main.Version=$env:VERSION" -o build/windows/greenwake-guard.exe ./cmd/guard
           powershell -ExecutionPolicy Bypass -File script/windows/build.ps1
+        shell: bash
           
       - name: Upload Windows Artifact
         uses: actions/upload-artifact@v4
@@ -132,11 +137,15 @@ jobs:
 
       - name: Install dependencies
         run: |
+          sudo sed -i 's/noble/jammy/g' /etc/apt/sources.list
           sudo dpkg --add-architecture arm64
           sudo apt-get update
-          sudo apt-get install -y build-essential rpm dpkg-dev pkg-config gcc-aarch64-linux-gnu
+          sudo apt-get install -y build-essential rpm dpkg-dev pkg-config
           if [ "${{ matrix.arch }}" = "arm64" ]; then
             sudo apt-get install -y \
+              gcc-aarch64-linux-gnu \
+              g++-aarch64-linux-gnu \
+              libc6-dev-arm64-cross \
               libgl1-mesa-dev:arm64 \
               libx11-dev:arm64 \
               libxcursor-dev:arm64 \
@@ -160,6 +169,10 @@ jobs:
           GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: 1
           CC: ${{ matrix.arch == 'arm64' && 'aarch64-linux-gnu-gcc' || 'gcc' }}
+          CXX: ${{ matrix.arch == 'arm64' && 'aarch64-linux-gnu-g++' || 'g++' }}
+          PKG_CONFIG_PATH: ${{ matrix.arch == 'arm64' && '/usr/lib/aarch64-linux-gnu/pkgconfig' || '/usr/lib/x86_64-linux-gnu/pkgconfig' }}
+          CGO_CFLAGS: ${{ matrix.arch == 'arm64' && '-I/usr/aarch64-linux-gnu/include' || '' }}
+          CGO_LDFLAGS: ${{ matrix.arch == 'arm64' && '-L/usr/aarch64-linux-gnu/lib' || '' }}
         run: |
           cd greenwake-guard
           chmod +x script/linux/build.sh
@@ -223,7 +236,7 @@ jobs:
           files: |
             artifacts/macos-universal/GreenwakeGuard.dmg
             artifacts/windows-amd64/GreenwakeGuard_Setup_*.exe
-            artifacts/windows-arm64/GreenwakeGuard_Setup_*.exe
+            # artifacts/windows-arm64/GreenwakeGuard_Setup_*.exe
             artifacts/linux-deb-amd64/greenwake-guard_*.deb
             artifacts/linux-deb-arm64/greenwake-guard_*.deb
             artifacts/linux-rpm-amd64/greenwake-guard-*.rpm
