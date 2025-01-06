@@ -49,7 +49,7 @@ if [ "$ARCH" = "arm64" ]; then
 fi
 
 # 添加编译选项
-BUILD_FLAGS="-ldflags '-s -w -X main.Version=$VERSION'"
+BUILD_FLAGS="-ldflags=-s -w -X main.Version=$VERSION"
 if [ "$ARCH" = "arm64" ]; then
     BUILD_FLAGS="$BUILD_FLAGS -tags netgo"
 fi
